@@ -20,6 +20,12 @@ struct SieveIndex
   y: u32
 }
 
+struct Chunk
+{
+  start_ix: usize,
+  end_ix: usize
+}
+
 fn find_fast_byte_after(start:&[u8], target:u8) -> usize
 {
   for a in 0..start.len()
@@ -74,12 +80,24 @@ fn main() {
     // Chunks for handling the file in a multi-threaded way
     // We want each chunk to begin just after an 0x0a byte
     // and end at an 0x0a byte
-    let chunks: u32 = 280;
-    for a in 1..chunks
+    const n_chunks: usize = 280;
+    let sharding_prime: u64 = 11;
+    let mut v: [Chunk;n_chunks] = [0;n_chunks].map(|_| Chunk { start_ix:0, end_ix:0 });
+
+    v[0].start_ix = 0;
+    v[n_chunks-1].end_ix = siz-1;
+
+    for a in 1..n_chunks
     {
-      let st = ((sz*(a as u64))/(chunks as u64)) as usize;
+      let st = ((sz*(a as u64))/(n_chunks as u64)) as usize;
       let wug = find_fast_byte_after(&mmap[st..], 0x0a);
-      let foo = fast_read_xy(&mmap[st+wug+1..]);
-      println!("{} {} {} {} {}",a,st,wug,foo.x, foo.y)
+      v[a-1].end_ix = st+wug;
+      v[a].start_ix = st+wug+1;
+    }
+
+    for a in 0..n_chunks
+    {
+      let foo = fast_read_xy(&mmap[v[a].start_ix..]);
+      println!("{} {}..={} {} {}",a, v[a].start_ix, v[a].end_ix, foo.x, foo.y)
     }
 }
