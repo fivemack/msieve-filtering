@@ -2,7 +2,13 @@ use memmap2::MmapOptions;
 use std::io::Write;
 use std::fs::File;
 
+use std::collections::HashSet;
+
+use std::sync::Arc;
+
 use clap::Parser;
+
+use rayon::prelude::*;
 
 #[derive(Debug,Parser)]
 #[clap(name="philtre", version="0.0.0", author="Tom Womack")]
@@ -14,11 +20,22 @@ pub struct PhiltreCmdLine
 	outfn: String
 }
 
+#[derive(Clone,Hash)]
 struct SieveIndex
 {
   x: i64,
   y: u32
 }
+
+impl PartialEq for SieveIndex
+{
+  fn eq(&self, other:&self) -> bool
+  {
+    self.x == other.x && self.y == other.y
+  }
+}
+
+impl Eq for SieveIndex {}
 
 struct Chunk
 {
@@ -67,6 +84,39 @@ fn fast_read_xy(xy: &[u8]) -> SieveIndex
   return SieveIndex { x: xx,y: yy }
 }
 
+fn count_lines_in_chunk(chunk: &[u8]) -> u64
+{  
+   let mut nlines: u64 = 0;
+   let mut ptr: usize = 0;
+   let L = chunk.len();
+   while ptr < L
+   {
+	let eol = find_fast_byte_after(&chunk[ptr..], b'\n');
+	nlines = 1+nlines;
+	ptr = ptr+1+eol;
+   }
+   nlines
+}
+
+fn sharded_read(shards: &mut Vec<Arc<HashSet<SieveIndex>>>, sharding_prime: usize, chunk: &[u8]) -> u64
+{
+   let mut nlines: u64 = 0;
+   let mut ptr: usize = 0;
+   let L = chunk.len();
+   while ptr < L
+   {
+	let eol = find_fast_byte_after(&chunk[ptr..], b'\n');
+	let xy = fast_read_xy(&chunk[ptr..]);
+	let shard: usize =   (xy.x.rem_euclid(sharding_prime as i64)) as usize
+	            + sharding_prime * (xy.y.rem_euclid(sharding_prime as u32) as usize) - 1;
+	let mut pinned = std::pin::pin!(shards[shard].clone());
+	pinned.get_mut().insert(xy);
+	nlines = 1+nlines;
+	ptr = ptr+1+eol;
+   }
+   nlines
+}
+
 fn main() {
     let args = PhiltreCmdLine::parse();
     println!("Hello, world! {} {}", args.infn, args.outfn);
@@ -81,7 +131,7 @@ fn main() {
     // We want each chunk to begin just after an 0x0a byte
     // and end at an 0x0a byte
     const n_chunks: usize = 280;
-    let sharding_prime: u64 = 11;
+    let sharding_prime: usize = 11;
     let mut v: [Chunk;n_chunks] = [0;n_chunks].map(|_| Chunk { start_ix:0, end_ix:0 });
 
     v[0].start_ix = 0;
@@ -100,4 +150,17 @@ fn main() {
       let foo = fast_read_xy(&mmap[v[a].start_ix..]);
       println!("{} {}..={} {} {}",a, v[a].start_ix, v[a].end_ix, foo.x, foo.y)
     }
+
+    let n_shards: usize = sharding_prime * sharding_prime - 1;
+    let mut xys: Vec<Arc<HashSet<SieveIndex>> > = Vec::new();
+    xys.resize(n_shards, Arc::new(HashSet::new()));
+
+    let n_lines2: u64 = v.par_iter()
+			 .map(|a| sharded_read(&xys, sharding_prime, &mmap[a.start_ix..a.end_ix]))
+			 .sum();
+    println!("{} lines in file", n_lines2);
+
+    // test that just counts the lines
+    // let n_lines: u64 = v.par_iter().map(|a| count_lines_in_chunk(&mmap[a.start_ix..a.end_ix])).sum();
+    // println!("{} lines in file", n_lines);
 }
