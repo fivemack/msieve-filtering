@@ -2,9 +2,11 @@ use memmap2::MmapOptions;
 use std::io::Write;
 use std::fs::File;
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 
+use std::sync::RwLock;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use clap::Parser;
 
@@ -29,7 +31,7 @@ struct SieveIndex
 
 impl PartialEq for SieveIndex
 {
-  fn eq(&self, other:&self) -> bool
+  fn eq(&self, other:&Self) -> bool
   {
     self.x == other.x && self.y == other.y
   }
@@ -40,7 +42,8 @@ impl Eq for SieveIndex {}
 struct Chunk
 {
   start_ix: usize,
-  end_ix: usize
+  end_ix: usize,
+  start_line: usize
 }
 
 fn find_fast_byte_after(start:&[u8], target:u8) -> usize
@@ -78,15 +81,15 @@ fn fast_read_xy(xy: &[u8]) -> SieveIndex
 {
   let colon = find_fast_byte_after(xy, b':');
   let comma = find_fast_byte_after(xy, b',');
-  println!("{} {} {}  {} {} {}", xy[colon-1], xy[colon], xy[colon+1], xy[comma-1], xy[comma], xy[comma+1]);
+//  println!("{} {} {}  {} {} {}", xy[colon-1], xy[colon], xy[colon+1], xy[comma-1], xy[comma], xy[comma+1]);
   let xx = fast_read_signed(&xy[0..comma]);
   let yy = fast_read_unsigned(&xy[comma+1..colon]) as u32;
   return SieveIndex { x: xx,y: yy }
 }
 
-fn count_lines_in_chunk(chunk: &[u8]) -> u64
+fn count_lines_in_chunk(chunk: &[u8]) -> usize
 {  
-   let mut nlines: u64 = 0;
+   let mut nlines: usize = 0;
    let mut ptr: usize = 0;
    let L = chunk.len();
    while ptr < L
@@ -98,9 +101,9 @@ fn count_lines_in_chunk(chunk: &[u8]) -> u64
    nlines
 }
 
-fn sharded_read(shards: &mut Vec<Arc<HashSet<SieveIndex>>>, sharding_prime: usize, chunk: &[u8]) -> u64
+fn sharded_read(shards: &RwLock<[Mutex<HashMap<SieveIndex, usize>>]>, sharding_prime: usize, start_line: usize, chunk: &[u8]) -> u64
 {
-   let mut nlines: u64 = 0;
+   let mut current_line: usize = 0;
    let mut ptr: usize = 0;
    let L = chunk.len();
    while ptr < L
@@ -109,12 +112,21 @@ fn sharded_read(shards: &mut Vec<Arc<HashSet<SieveIndex>>>, sharding_prime: usiz
 	let xy = fast_read_xy(&chunk[ptr..]);
 	let shard: usize =   (xy.x.rem_euclid(sharding_prime as i64)) as usize
 	            + sharding_prime * (xy.y.rem_euclid(sharding_prime as u32) as usize) - 1;
-	let mut pinned = std::pin::pin!(shards[shard].clone());
-	pinned.get_mut().insert(xy);
-	nlines = 1+nlines;
+        let shards_reader = shards.read().unwrap();
+        let shard_mutex = shards_reader.get(shard).unwrap();
+	// block where we actually need to do something locked
+	{
+	    let mut data = shard_mutex.lock().unwrap();
+	    if !data.contains_key(&xy) || data[&xy] > current_line
+	    {
+		data.insert(xy, current_line);
+	    }
+	}
+
+	current_line = 1+current_line;
 	ptr = ptr+1+eol;
    }
-   nlines
+   current_line as u64
 }
 
 fn main() {
@@ -131,8 +143,11 @@ fn main() {
     // We want each chunk to begin just after an 0x0a byte
     // and end at an 0x0a byte
     const n_chunks: usize = 280;
-    let sharding_prime: usize = 11;
-    let mut v: [Chunk;n_chunks] = [0;n_chunks].map(|_| Chunk { start_ix:0, end_ix:0 });
+
+    // We want really quite a lot of shards to avoid lock contention between the threads
+
+    const sharding_prime: usize = 97;
+    let mut v: [Chunk;n_chunks] = [0;n_chunks].map(|_| Chunk { start_ix:0, end_ix:0, start_line:0 });
 
     v[0].start_ix = 0;
     v[n_chunks-1].end_ix = siz-1;
@@ -145,22 +160,28 @@ fn main() {
       v[a].start_ix = st+wug+1;
     }
 
+
+    const n_shards: usize = sharding_prime * sharding_prime - 1;
+    let xys: [Mutex<HashMap<SieveIndex, usize>>; n_shards] = [0;n_shards].map(|_| Mutex::new(HashMap::new()));
+    let xys_refcell: RwLock<_> = RwLock::new(xys);
+
+    // test that just counts the lines
+    let lines_per_chunk: Vec<usize> = v.par_iter().map(|a| count_lines_in_chunk(&mmap[a.start_ix..a.end_ix])).collect();
+    println!("{} lines in file", lines_per_chunk.iter().sum::<usize>());
+
+    let mut nx: usize = 0;
+    for a in 1..n_chunks
+    {
+	nx = nx + lines_per_chunk[a-1];
+	v[a].start_line=nx;
+    }
+
     for a in 0..n_chunks
     {
       let foo = fast_read_xy(&mmap[v[a].start_ix..]);
-      println!("{} {}..={} {} {}",a, v[a].start_ix, v[a].end_ix, foo.x, foo.y)
-    }
+      println!("{} {}..={} ({}) {} {}",a, v[a].start_ix, v[a].end_ix, v[a].start_line, foo.x, foo.y)
+    }    
 
-    let n_shards: usize = sharding_prime * sharding_prime - 1;
-    let mut xys: Vec<Arc<HashSet<SieveIndex>> > = Vec::new();
-    xys.resize(n_shards, Arc::new(HashSet::new()));
-
-    let n_lines2: u64 = v.par_iter()
-			 .map(|a| sharded_read(&xys, sharding_prime, &mmap[a.start_ix..a.end_ix]))
-			 .sum();
-    println!("{} lines in file", n_lines2);
-
-    // test that just counts the lines
-    // let n_lines: u64 = v.par_iter().map(|a| count_lines_in_chunk(&mmap[a.start_ix..a.end_ix])).sum();
-    // println!("{} lines in file", n_lines);
+    let dummy:Vec<u64> = v.par_iter().map(|a| sharded_read(&xys_refcell, sharding_prime, a.start_line, &mmap[a.start_ix..a.end_ix])).collect();
+    println!("Chunk 0 of sharded read has {} entries", xys_refcell.read().unwrap().get(0).unwrap().lock().unwrap().len());
 }
