@@ -12,6 +12,8 @@ use clap::Parser;
 
 use rayon::prelude::*;
 
+use bitvec::prelude::*;
+
 #[derive(Debug,Parser)]
 #[clap(name="philtre", version="0.0.0", author="Tom Womack")]
 pub struct PhiltreCmdLine
@@ -43,7 +45,23 @@ struct Chunk
 {
   start_ix: usize,
   end_ix: usize,
-  start_line: usize
+  start_line: usize,
+  end_line: usize,
+  line_valid: BitVec,
+  line_starts: Vec<usize>
+}
+
+impl Chunk
+{
+  pub fn new() -> Self
+  {
+    Chunk {start_ix: 0,
+    	   end_ix: 0,
+	   start_line: 0,
+	   end_line: 0,
+	   line_valid: BitVec::new(),
+	   line_starts: Vec::new()}
+  }
 }
 
 fn find_fast_byte_after(start:&[u8], target:u8) -> usize
@@ -87,23 +105,30 @@ fn fast_read_xy(xy: &[u8]) -> SieveIndex
   return SieveIndex { x: xx,y: yy }
 }
 
-fn count_lines_in_chunk(chunk: &[u8]) -> usize
-{  
+impl Chunk
+{
+  pub fn identify_lines(&mut self, data: &[u8]) -> usize
+  {
+   let chunk = &data[self.start_ix..self.end_ix];
    let mut nlines: usize = 0;
    let mut ptr: usize = 0;
    let L = chunk.len();
    while ptr < L
    {
+        self.line_starts.push(ptr);
 	let eol = find_fast_byte_after(&chunk[ptr..], b'\n');
 	nlines = 1+nlines;
 	ptr = ptr+1+eol;
    }
+   // mark all the lines as valid
+   self.line_valid.resize(nlines, true);
    nlines
+  }
 }
 
 fn sharded_read(shards: &RwLock<[Mutex<HashMap<SieveIndex, usize>>]>, sharding_prime: usize, start_line: usize, chunk: &[u8]) -> u64
 {
-   let mut current_line: usize = 0;
+   let mut current_line: usize = start_line;
    let mut ptr: usize = 0;
    let L = chunk.len();
    while ptr < L
@@ -129,6 +154,39 @@ fn sharded_read(shards: &RwLock<[Mutex<HashMap<SieveIndex, usize>>]>, sharding_p
    current_line as u64
 }
 
+fn mark_dupes(shards: &RwLock<[Mutex<HashMap<SieveIndex, usize>>]>, sharding_prime: usize, start_line: usize, end_line: usize, chunk: &[u8]) -> BitVec
+{
+   let mut current_line: usize = start_line;
+   let mut bv: BitVec = BitVec::new();
+   bv.resize(end_line-start_line, false);
+   let mut bvix: usize = 0;
+   let mut ptr: usize = 0;
+   let L = chunk.len();
+   while ptr < L
+   {
+	let eol = find_fast_byte_after(&chunk[ptr..], b'\n');
+	let xy = fast_read_xy(&chunk[ptr..]);
+	let shard: usize =   (xy.x.rem_euclid(sharding_prime as i64)) as usize
+	            + sharding_prime * (xy.y.rem_euclid(sharding_prime as u32) as usize) - 1;
+        let shards_reader = shards.read().unwrap();
+        let shard_mutex = shards_reader.get(shard).unwrap();
+	// ideally I'd have a second version of the data without the mutex at this point
+	// because it's read-only access
+	{
+	    let data = shard_mutex.lock().unwrap();
+	    if data[&xy] == current_line
+	    {
+		bv.set(bvix, true);
+	    }
+	}
+
+	current_line = 1+current_line;
+	bvix = 1+bvix;
+	ptr = ptr+1+eol;
+   }
+   bv
+}
+
 fn main() {
     let args = PhiltreCmdLine::parse();
     println!("Hello, world! {} {}", args.infn, args.outfn);
@@ -147,7 +205,7 @@ fn main() {
     // We want really quite a lot of shards to avoid lock contention between the threads
 
     const sharding_prime: usize = 97;
-    let mut v: [Chunk;n_chunks] = [0;n_chunks].map(|_| Chunk { start_ix:0, end_ix:0, start_line:0 });
+    let mut v: [Chunk;n_chunks] = [0;n_chunks].map(|_| Chunk::new());
 
     v[0].start_ix = 0;
     v[n_chunks-1].end_ix = siz-1;
@@ -163,10 +221,10 @@ fn main() {
 
     const n_shards: usize = sharding_prime * sharding_prime - 1;
     let xys: [Mutex<HashMap<SieveIndex, usize>>; n_shards] = [0;n_shards].map(|_| Mutex::new(HashMap::new()));
-    let xys_refcell: RwLock<_> = RwLock::new(xys);
+    let xys_under_rwlock: RwLock<_> = RwLock::new(xys);
 
-    // test that just counts the lines
-    let lines_per_chunk: Vec<usize> = v.par_iter().map(|a| count_lines_in_chunk(&mmap[a.start_ix..a.end_ix])).collect();
+    // count the lines (needed so each chunk knows where it starts)
+    let lines_per_chunk: Vec<usize> = v.par_iter_mut().map(|a| a.identify_lines(&mmap)).collect();
     println!("{} lines in file", lines_per_chunk.iter().sum::<usize>());
 
     let mut nx: usize = 0;
@@ -174,6 +232,7 @@ fn main() {
     {
 	nx = nx + lines_per_chunk[a-1];
 	v[a].start_line=nx;
+	v[a-1].end_line=nx-1;
     }
 
     for a in 0..n_chunks
@@ -182,6 +241,16 @@ fn main() {
       println!("{} {}..={} ({}) {} {}",a, v[a].start_ix, v[a].end_ix, v[a].start_line, foo.x, foo.y)
     }    
 
-    let dummy:Vec<u64> = v.par_iter().map(|a| sharded_read(&xys_refcell, sharding_prime, a.start_line, &mmap[a.start_ix..a.end_ix])).collect();
-    println!("Chunk 0 of sharded read has {} entries", xys_refcell.read().unwrap().get(0).unwrap().lock().unwrap().len());
+    let dummy:Vec<u64> = v.par_iter().map(|a| sharded_read(&xys_under_rwlock, sharding_prime, a.start_line, &mmap[a.start_ix..a.end_ix])).collect();
+    println!("Chunk 0 of sharded read has {} entries", xys_under_rwlock.read().unwrap().get(0).unwrap().lock().unwrap().len());
+
+    // Now that we've done the part requiring aggressive locking,
+    // can we make the thing read-only for the part where we do the labelling,
+    // counting and output?
+
+    // non-obvious question: do we compute the labels twice (once to count and once for output)
+    // or do we store them
+
+    // first version: store them
+    let chunked_labels:Vec<BitVec> = v.par_iter().map(|a| mark_dupes(&xys_under_rwlock, sharding_prime, a.start_line, a.end_line, &mmap[a.start_ix..a.end_ix])).collect();
 }
