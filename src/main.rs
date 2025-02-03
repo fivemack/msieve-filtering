@@ -190,24 +190,19 @@ impl Chunk<'_> {
                 }
             }
         }
+    }
 
-        pub fn mark_dupes(
-            &self,
-            shards: &RwLock<[Mutex<HashMap<SieveIndex, usize>>]>,
-            sharding_prime: usize,
-            start_line: usize,
-            end_line: usize,
-            chunk: &[u8],
-        ) -> BitVec {
-            let mut current_line: usize = start_line;
-            let mut bv: BitVec = BitVec::new();
-            bv.resize(end_line - start_line, false);
-            let mut bvix: usize = 0;
-            let mut ptr: usize = 0;
-            let L = chunk.len();
-            while ptr < L {
-                let eol = find_fast_byte_after(&chunk[ptr..], b'\n');
-                let xy = fast_read_xy(&chunk[ptr..]);
+    pub fn mark_dupes(
+        &mut self,
+        shards: &RwLock<[Mutex<HashMap<SieveIndex, usize>>]>,
+        sharding_prime: usize,
+    ) -> usize {
+	let mut duplicates = 0;
+	for i in 0..self.line_starts.len()
+	{
+	    if self.line_valid[i]
+	    {
+                let xy = fast_read_xy(&self.chunk[self.line_starts[i]..]);
                 let shard: usize = (xy.x.rem_euclid(sharding_prime as i64)) as usize
                     + sharding_prime * (xy.y.rem_euclid(sharding_prime as u32) as usize)
                     - 1;
@@ -217,17 +212,15 @@ impl Chunk<'_> {
                 // because it's read-only access
                 {
                     let data = shard_mutex.lock().unwrap();
-                    if data[&xy] == current_line {
-                        bv.set(bvix, true);
+		    let current_line = self.start_line + i;
+                    if data[&xy] != current_line {
+                        self.line_valid.set(i, false);
+                        duplicates += 1;
                     }
                 }
-
-                current_line = 1 + current_line;
-                bvix = 1 + bvix;
-                ptr = ptr + 1 + eol;
             }
-            bv
         }
+        duplicates
     }
 }
 
@@ -348,10 +341,10 @@ fn main() {
     let n_comments: usize = v.par_iter_mut().map(|a| a.invalidate_comments()).sum();
     println!("{} comment lines found\n", n_comments);
 
-    let dummy: Vec<u64> = v
+    let _dummy = v
         .par_iter()
-        .map(|a| a.sharded_read(&xys_under_rwlock, sharding_prime))
-        .collect();
+        .map(|a| a.sharded_read(&xys_under_rwlock, sharding_prime));
+
     println!(
         "Chunk 0 of sharded read has {} entries",
         xys_under_rwlock
@@ -368,13 +361,9 @@ fn main() {
     // can we make the thing read-only for the part where we do the labelling,
     // counting and output?
 
-    // non-obvious question: do we compute the labels twice (once to count and once for output)
-    // or do we store them
-
-    // first version: store them
-    let chunked_labels: Vec<BitVec> = v
-        .par_iter()
+    let n_duplicates: usize = v.par_iter_mut()
         .map(|a| a.mark_dupes(&xys_under_rwlock, sharding_prime))
-        .collect();
+        .sum();
+    println!("{} duplicates found", n_duplicates);
     emit_uncancelled_lines(args.outfn, &v, &mmap).unwrap();
 }
