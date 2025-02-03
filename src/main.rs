@@ -44,7 +44,7 @@ struct Chunk<'a> {
     end_line: usize,
     line_valid: BitVec,
     line_starts: Vec<usize>,
-    chunk: &'a [u8]
+    chunk: &'a [u8],
 }
 
 impl Chunk<'_> {
@@ -56,7 +56,7 @@ impl Chunk<'_> {
             end_line: 0,
             line_valid: BitVec::new(),
             line_starts: Vec::new(),
-            chunk: &[]
+            chunk: &[],
         }
     }
 }
@@ -135,12 +135,10 @@ impl Chunk<'_> {
 
     pub fn invalidate_comments(&mut self) -> usize {
         let mut ncomments: usize = 0;
-        for i in 0..self.line_valid.len()
-        {
-            if self.line_valid[i] && self.chunk[self.line_starts[i]]==0x23
-            {
+        for i in 0..self.line_valid.len() {
+            if self.line_valid[i] && self.chunk[self.line_starts[i]] == 0x23 {
                 self.line_valid.set(i, false);
-                ncomments+=1;
+                ncomments += 1;
             }
         }
         ncomments
@@ -169,67 +167,67 @@ impl Chunk<'_> {
         }
     }
 
-    pub fn sharded_read(&self, 
-    shards: &RwLock<[Mutex<HashMap<SieveIndex, usize>>]>,
-    sharding_prime: usize,
-) {
-        for i in 0..=(self.end_line-self.start_line)
-	{
-	    if self.line_valid(i)
-	    {
-	        let xy = fast_read_xy(&chunk[self.line_starts[ptr]..]);
-        let shard: usize = (xy.x.rem_euclid(sharding_prime as i64)) as usize
-            + sharding_prime * (xy.y.rem_euclid(sharding_prime as u32) as usize)
-            - 1;
-        let shards_reader = shards.read().unwrap();
-        let shard_mutex = shards_reader.get(shard).unwrap();
-        // block where we actually need to do something locked
-        {
-            let mut data = shard_mutex.lock().unwrap();
-            if !data.contains_key(&xy) || data[&xy] > current_line {
-                data.insert(xy, current_line);
-            }
-        }
-    }
-}
-
-pub fn mark_dupes(&self,
-    shards: &RwLock<[Mutex<HashMap<SieveIndex, usize>>]>,
-    sharding_prime: usize,
-    start_line: usize,
-    end_line: usize,
-    chunk: &[u8],
-) -> BitVec {
-    let mut current_line: usize = start_line;
-    let mut bv: BitVec = BitVec::new();
-    bv.resize(end_line - start_line, false);
-    let mut bvix: usize = 0;
-    let mut ptr: usize = 0;
-    let L = chunk.len();
-    while ptr < L {
-        let eol = find_fast_byte_after(&chunk[ptr..], b'\n');
-        let xy = fast_read_xy(&chunk[ptr..]);
-        let shard: usize = (xy.x.rem_euclid(sharding_prime as i64)) as usize
-            + sharding_prime * (xy.y.rem_euclid(sharding_prime as u32) as usize)
-            - 1;
-        let shards_reader = shards.read().unwrap();
-        let shard_mutex = shards_reader.get(shard).unwrap();
-        // ideally I'd have a second version of the data without the mutex at this point
-        // because it's read-only access
-        {
-            let data = shard_mutex.lock().unwrap();
-            if data[&xy] == current_line {
-                bv.set(bvix, true);
+    pub fn sharded_read(
+        &self,
+        shards: &RwLock<[Mutex<HashMap<SieveIndex, usize>>]>,
+        sharding_prime: usize,
+    ) {
+        for i in 0..=(self.end_line - self.start_line) {
+            if self.line_valid(i) {
+                let xy = fast_read_xy(&chunk[self.line_starts[ptr]..]);
+                let shard: usize = (xy.x.rem_euclid(sharding_prime as i64)) as usize
+                    + sharding_prime * (xy.y.rem_euclid(sharding_prime as u32) as usize)
+                    - 1;
+                let shards_reader = shards.read().unwrap();
+                let shard_mutex = shards_reader.get(shard).unwrap();
+                // block where we actually need to do something locked
+                {
+                    let mut data = shard_mutex.lock().unwrap();
+                    if !data.contains_key(&xy) || data[&xy] > current_line {
+                        data.insert(xy, current_line);
+                    }
+                }
             }
         }
 
-        current_line = 1 + current_line;
-        bvix = 1 + bvix;
-        ptr = ptr + 1 + eol;
+        pub fn mark_dupes(
+            &self,
+            shards: &RwLock<[Mutex<HashMap<SieveIndex, usize>>]>,
+            sharding_prime: usize,
+            start_line: usize,
+            end_line: usize,
+            chunk: &[u8],
+        ) -> BitVec {
+            let mut current_line: usize = start_line;
+            let mut bv: BitVec = BitVec::new();
+            bv.resize(end_line - start_line, false);
+            let mut bvix: usize = 0;
+            let mut ptr: usize = 0;
+            let L = chunk.len();
+            while ptr < L {
+                let eol = find_fast_byte_after(&chunk[ptr..], b'\n');
+                let xy = fast_read_xy(&chunk[ptr..]);
+                let shard: usize = (xy.x.rem_euclid(sharding_prime as i64)) as usize
+                    + sharding_prime * (xy.y.rem_euclid(sharding_prime as u32) as usize)
+                    - 1;
+                let shards_reader = shards.read().unwrap();
+                let shard_mutex = shards_reader.get(shard).unwrap();
+                // ideally I'd have a second version of the data without the mutex at this point
+                // because it's read-only access
+                {
+                    let data = shard_mutex.lock().unwrap();
+                    if data[&xy] == current_line {
+                        bv.set(bvix, true);
+                    }
+                }
+
+                current_line = 1 + current_line;
+                bvix = 1 + bvix;
+                ptr = ptr + 1 + eol;
+            }
+            bv
+        }
     }
-    bv
-}
-}
 }
 
 fn emit_uncancelled_lines(output_filename: String, v: &[Chunk], mmap_r: &[u8]) -> io::Result<()> {
@@ -294,9 +292,8 @@ fn main() {
         v[a - 1].end_ix = st + wug;
         v[a].start_ix = st + wug + 1;
     }
-    for a in &mut v
-    {
-    a.chunk = &mmap[a.start_ix..a.end_ix];
+    for a in &mut v {
+        a.chunk = &mmap[a.start_ix..a.end_ix];
     }
 
     const n_shards: usize = sharding_prime * sharding_prime - 1;
@@ -316,16 +313,32 @@ fn main() {
     }
 
     for a in 0..n_chunks {
-        let mut t = v[a].start_ix; let mut ll = 0;
+        let mut t = v[a].start_ix;
+        let mut ll = 0;
         while mmap[t] == 0x23 {
-            println!("Found comment line at offset {} (chunk {} line {}={})", t, a, ll, v[a].start_line+ll);
+            println!(
+                "Found comment line at offset {} (chunk {} line {}={})",
+                t,
+                a,
+                ll,
+                v[a].start_line + ll
+            );
             t += 1 + find_fast_byte_after(&mmap[t..], 0x0a);
             ll += 1;
         }
         let foo = fast_read_xy(&mmap[t..]);
         println!(
             "{} {}..={} ({}..={}, {}, {}, {}) {} {}",
-            a, v[a].start_ix, v[a].end_ix, v[a].start_line, v[a].end_line, v[a].line_starts.len(), v[a].end_line - v[a].start_line, v[a].line_valid.len(), foo.x, foo.y
+            a,
+            v[a].start_ix,
+            v[a].end_ix,
+            v[a].start_line,
+            v[a].end_line,
+            v[a].line_starts.len(),
+            v[a].end_line - v[a].start_line,
+            v[a].line_valid.len(),
+            foo.x,
+            foo.y
         )
     }
 
@@ -336,12 +349,7 @@ fn main() {
 
     let dummy: Vec<u64> = v
         .par_iter()
-        .map(|a| {
-            a.sharded_read(
-                &xys_under_rwlock,
-                sharding_prime,
-            )
-        })
+        .map(|a| a.sharded_read(&xys_under_rwlock, sharding_prime))
         .collect();
     println!(
         "Chunk 0 of sharded read has {} entries",
@@ -365,12 +373,7 @@ fn main() {
     // first version: store them
     let chunked_labels: Vec<BitVec> = v
         .par_iter()
-        .map(|a| {
-            a.mark_dupes(
-                &xys_under_rwlock,
-                sharding_prime
-            )
-        })
+        .map(|a| a.mark_dupes(&xys_under_rwlock, sharding_prime))
         .collect();
     emit_uncancelled_lines(args.outfn, &v, &mmap).unwrap();
 }
