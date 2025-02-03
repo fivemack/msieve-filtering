@@ -56,7 +56,7 @@ impl Chunk<'_> {
             end_line: 0,
             line_valid: BitVec::new(),
             line_starts: Vec::new(),
-        chunk: &[]
+            chunk: &[]
         }
     }
 }
@@ -72,9 +72,9 @@ fn find_fast_byte_after(start: &[u8], target: u8) -> usize {
 
 fn fast_read_unsigned(number: &[u8]) -> u64 {
     if number.len() > 16 {
-        println!("{}", number.len());
+        println!("Unexpectedly long integer of {} characters", number.len());
         for i in 0..number.len() {
-            println!("{}", number[i] as i8);
+            println!("{} {}", number[i] as char, number[i]);
         }
         assert!(number.len() <= 16);
     }
@@ -106,6 +106,13 @@ fn fast_read_xy(xy: &[u8]) -> SieveIndex {
     return SieveIndex { x: xx, y: yy };
 }
 
+// note that Chunk.line_starts has *one more entry than the number of lines*
+// so as to encode the length of the final line without needing a whole new
+// large array for lengths
+
+// so line_starts.len() is one more than the number of lines and one more than
+// line_valid.size()
+
 impl Chunk<'_> {
     pub fn identify_lines(&mut self, data: &[u8]) -> usize {
         let chunk = &data[self.start_ix..self.end_ix];
@@ -128,7 +135,7 @@ impl Chunk<'_> {
 
     pub fn invalidate_comments(&mut self) -> usize {
         let mut ncomments: usize = 0;
-        for i in 0..self.line_starts.len()
+        for i in 0..self.line_valid.len()
         {
             if self.line_valid[i] && self.chunk[self.line_starts[i]]==0x23
             {
@@ -161,20 +168,16 @@ impl Chunk<'_> {
             }
         }
     }
-}
 
-fn sharded_read(
+    pub fn sharded_read(&self, 
     shards: &RwLock<[Mutex<HashMap<SieveIndex, usize>>]>,
     sharding_prime: usize,
-    start_line: usize,
-    chunk: &[u8],
-) -> u64 {
-    let mut current_line: usize = start_line;
-    let mut ptr: usize = 0;
-    let L = chunk.len();
-    while ptr < L {
-        let eol = find_fast_byte_after(&chunk[ptr..], b'\n');
-        let xy = fast_read_xy(&chunk[ptr..]);
+) {
+        for i in 0..=(self.end_line-self.start_line)
+	{
+	    if self.line_valid(i)
+	    {
+	        let xy = fast_read_xy(&chunk[self.line_starts[ptr]..]);
         let shard: usize = (xy.x.rem_euclid(sharding_prime as i64)) as usize
             + sharding_prime * (xy.y.rem_euclid(sharding_prime as u32) as usize)
             - 1;
@@ -187,14 +190,10 @@ fn sharded_read(
                 data.insert(xy, current_line);
             }
         }
-
-        current_line = 1 + current_line;
-        ptr = ptr + 1 + eol;
     }
-    current_line as u64
 }
 
-fn mark_dupes(
+pub fn mark_dupes(&self,
     shards: &RwLock<[Mutex<HashMap<SieveIndex, usize>>]>,
     sharding_prime: usize,
     start_line: usize,
@@ -229,6 +228,8 @@ fn mark_dupes(
         ptr = ptr + 1 + eol;
     }
     bv
+}
+}
 }
 
 fn emit_uncancelled_lines(output_filename: String, v: &[Chunk], mmap_r: &[u8]) -> io::Result<()> {
@@ -267,7 +268,6 @@ fn emit_uncancelled_lines(output_filename: String, v: &[Chunk], mmap_r: &[u8]) -
 
 fn main() {
     let args = PhiltreCmdLine::parse();
-    println!("Hello, world! {} {}", args.infn, args.outfn);
 
     let file = File::open(args.infn).unwrap();
     let mmap = unsafe { MmapOptions::new().map(&file).unwrap() };
@@ -309,10 +309,10 @@ fn main() {
     println!("{} lines in file", lines_per_chunk.iter().sum::<usize>());
 
     let mut nx: usize = 0;
-    for a in 1..n_chunks {
-        nx = nx + lines_per_chunk[a - 1];
+    for a in 0..n_chunks {
         v[a].start_line = nx;
-        v[a - 1].end_line = nx - 1;
+        nx = nx + lines_per_chunk[a];
+        v[a].end_line = nx - 1;
     }
 
     for a in 0..n_chunks {
@@ -320,12 +320,12 @@ fn main() {
         while mmap[t] == 0x23 {
             println!("Found comment line at offset {} (chunk {} line {}={})", t, a, ll, v[a].start_line+ll);
             t += 1 + find_fast_byte_after(&mmap[t..], 0x0a);
-        ll += 1;
+            ll += 1;
         }
         let foo = fast_read_xy(&mmap[t..]);
         println!(
-            "{} {}..={} ({}) {} {}",
-            a, v[a].start_ix, v[a].end_ix, v[a].start_line, foo.x, foo.y
+            "{} {}..={} ({}..={}, {}, {}, {}) {} {}",
+            a, v[a].start_ix, v[a].end_ix, v[a].start_line, v[a].end_line, v[a].line_starts.len(), v[a].end_line - v[a].start_line, v[a].line_valid.len(), foo.x, foo.y
         )
     }
 
@@ -337,11 +337,9 @@ fn main() {
     let dummy: Vec<u64> = v
         .par_iter()
         .map(|a| {
-            sharded_read(
+            a.sharded_read(
                 &xys_under_rwlock,
                 sharding_prime,
-                a.start_line,
-                &mmap[a.start_ix..a.end_ix],
             )
         })
         .collect();
@@ -368,12 +366,9 @@ fn main() {
     let chunked_labels: Vec<BitVec> = v
         .par_iter()
         .map(|a| {
-            mark_dupes(
+            a.mark_dupes(
                 &xys_under_rwlock,
-                sharding_prime,
-                a.start_line,
-                a.end_line,
-                &mmap[a.start_ix..a.end_ix],
+                sharding_prime
             )
         })
         .collect();
