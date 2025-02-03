@@ -87,6 +87,14 @@ fn fast_read_unsigned(number: &[u8]) -> u64
     M = M * 10
   }
   k
+    if (number.len() > 16) {
+        println!("{}", number.len());
+        for i in 0..number.len() {
+            println!("{}", number[i] as i8);
+        }
+        assert!(number.len() <= 16);
+    }
+
 }
 
 fn fast_read_signed(number: &[u8]) -> i64
@@ -301,9 +309,14 @@ fn main() {
 
     for a in 0..n_chunks
     {
-      let foo = fast_read_xy(&mmap[v[a].start_ix..]);
       println!("{} {}..={} ({}) {} {}",a, v[a].start_ix, v[a].end_ix, v[a].start_line, foo.x, foo.y)
     }    
+        let mut t = v[a].start_ix;
+        while (mmap[t] == 0x23) {
+            println!("Found comment line at offset {}", t);
+            t += 1 + find_fast_byte_after(&mmap[t..], 0x0a);
+        }
+        let foo = fast_read_xy(&mmap[t..]);
 
     let dummy:Vec<u64> = v.par_iter().map(|a| sharded_read(&xys_under_rwlock, sharding_prime, a.start_line, &mmap[a.start_ix..a.end_ix])).collect();
     println!("Chunk 0 of sharded read has {} entries", xys_under_rwlock.read().unwrap().get(0).unwrap().lock().unwrap().len());
