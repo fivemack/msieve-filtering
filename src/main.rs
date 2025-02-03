@@ -5,7 +5,6 @@ use std::io::Write;
 
 use std::collections::HashMap;
 
-use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::RwLock;
 
@@ -38,16 +37,17 @@ impl PartialEq for SieveIndex {
 
 impl Eq for SieveIndex {}
 
-struct Chunk {
+struct Chunk<'a> {
     start_ix: usize,
     end_ix: usize,
     start_line: usize,
     end_line: usize,
     line_valid: BitVec,
     line_starts: Vec<usize>,
+    chunk: &'a [u8]
 }
 
-impl Chunk {
+impl Chunk<'_> {
     pub fn new() -> Self {
         Chunk {
             start_ix: 0,
@@ -56,6 +56,7 @@ impl Chunk {
             end_line: 0,
             line_valid: BitVec::new(),
             line_starts: Vec::new(),
+        chunk: &[]
         }
     }
 }
@@ -70,7 +71,7 @@ fn find_fast_byte_after(start: &[u8], target: u8) -> usize {
 }
 
 fn fast_read_unsigned(number: &[u8]) -> u64 {
-    if (number.len() > 16) {
+    if number.len() > 16 {
         println!("{}", number.len());
         for i in 0..number.len() {
             println!("{}", number[i] as i8);
@@ -105,7 +106,7 @@ fn fast_read_xy(xy: &[u8]) -> SieveIndex {
     return SieveIndex { x: xx, y: yy };
 }
 
-impl Chunk {
+impl Chunk<'_> {
     pub fn identify_lines(&mut self, data: &[u8]) -> usize {
         let chunk = &data[self.start_ix..self.end_ix];
         let mut nlines: usize = 0;
@@ -121,6 +122,21 @@ impl Chunk {
         // mark all the lines as valid
         self.line_valid.resize(nlines, true);
         nlines
+    }
+
+    // there are 2015110 comment lines in finish-9282-1472/msieve.dat
+
+    pub fn invalidate_comments(&mut self) -> usize {
+        let mut ncomments: usize = 0;
+        for i in 0..self.line_starts.len()
+        {
+            if self.line_valid[i] && self.chunk[self.line_starts[i]]==0x23
+            {
+                self.line_valid.set(i, false);
+                ncomments+=1;
+            }
+        }
+        ncomments
     }
 
     pub fn valid_length(&self) -> usize {
@@ -278,6 +294,10 @@ fn main() {
         v[a - 1].end_ix = st + wug;
         v[a].start_ix = st + wug + 1;
     }
+    for a in &mut v
+    {
+    a.chunk = &mmap[a.start_ix..a.end_ix];
+    }
 
     const n_shards: usize = sharding_prime * sharding_prime - 1;
     let xys: [Mutex<HashMap<SieveIndex, usize>>; n_shards] =
@@ -296,10 +316,11 @@ fn main() {
     }
 
     for a in 0..n_chunks {
-        let mut t = v[a].start_ix;
-        while (mmap[t] == 0x23) {
-            println!("Found comment line at offset {}", t);
+        let mut t = v[a].start_ix; let mut ll = 0;
+        while mmap[t] == 0x23 {
+            println!("Found comment line at offset {} (chunk {} line {}={})", t, a, ll, v[a].start_line+ll);
             t += 1 + find_fast_byte_after(&mmap[t..], 0x0a);
+        ll += 1;
         }
         let foo = fast_read_xy(&mmap[t..]);
         println!(
@@ -307,6 +328,11 @@ fn main() {
             a, v[a].start_ix, v[a].end_ix, v[a].start_line, foo.x, foo.y
         )
     }
+
+    // mark all the comment lines as invalid
+
+    let n_comments: usize = v.par_iter_mut().map(|a| a.invalidate_comments()).sum();
+    println!("{} comment lines found\n", n_comments);
 
     let dummy: Vec<u64> = v
         .par_iter()
