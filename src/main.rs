@@ -173,8 +173,9 @@ impl Chunk<'_> {
         sharding_prime: usize,
     ) {
         for i in 0..=(self.end_line - self.start_line) {
-            if self.line_valid(i) {
-                let xy = fast_read_xy(&chunk[self.line_starts[ptr]..]);
+            if self.line_valid[i] {
+                let current_line = self.start_line + i;
+                let xy = fast_read_xy(&self.chunk[self.line_starts[i]..]);
                 let shard: usize = (xy.x.rem_euclid(sharding_prime as i64)) as usize
                     + sharding_prime * (xy.y.rem_euclid(sharding_prime as u32) as usize)
                     - 1;
