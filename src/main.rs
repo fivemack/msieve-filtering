@@ -1,4 +1,5 @@
 use memmap2::MmapOptions;
+use std::io;
 use std::io::Write;
 use std::fs::File;
 
@@ -120,9 +121,38 @@ impl Chunk
 	nlines = 1+nlines;
 	ptr = ptr+1+eol;
    }
+   self.line_starts.push(ptr);
    // mark all the lines as valid
    self.line_valid.resize(nlines, true);
    nlines
+  }
+
+  pub fn valid_length(&self) -> usize
+  {
+    let mut vl: usize = 0;
+    for i in 0..self.line_starts.len()-1
+    {
+      if self.line_valid[i]
+      {
+        vl += self.line_starts[i+1]-self.line_starts[i];
+      }
+    }
+    vl
+  }
+
+  pub fn write_out(&self, data: &[u8], dest_m: &Mutex<&mut [u8]>)
+  {
+    let mut dest = (*dest_m).lock().unwrap();
+    let mut ptr: usize = 0;
+    for i in 0..self.line_starts.len()-1
+    {
+      if self.line_valid[i]
+      {
+        let line_length = self.line_starts[i+1] - self.line_starts[i];
+        (&mut dest[ptr..ptr+line_length]).copy_from_slice(&data[self.line_starts[i]..self.line_starts[i+1]]);
+	ptr += line_length;
+      }
+    }
   }
 }
 
@@ -185,6 +215,40 @@ fn mark_dupes(shards: &RwLock<[Mutex<HashMap<SieveIndex, usize>>]>, sharding_pri
 	ptr = ptr+1+eol;
    }
    bv
+}
+
+fn emit_uncancelled_lines(output_filename: String, v: &[Chunk], mmap_r: &[u8]) -> io::Result<()>
+{
+    // Get the sum of the lengths of the uncancelled parts of the chunks
+    let n = v.len();
+    let valid_lengths: Vec<usize> = v.par_iter().map(|c| c.valid_length()).collect();
+    let mut start: Vec<usize> = Vec::new();
+
+    let mut sp: usize = 0;
+    for i in 0..n
+    {
+      start.push(sp);
+      sp+=valid_lengths[i];
+    }
+    let total_length: usize = sp;
+
+// And actually perform the writes
+    let ofile = File::create(output_filename).unwrap();
+    ofile.set_len(total_length as u64)?;
+    let mut mmap_w = unsafe { MmapOptions::new().map_mut(&ofile).unwrap() };
+
+// Use split_at_mut to let us pass the segments of the file to the iterator in parallel
+    let mut segments: Vec<Mutex<&mut [u8]>> = Vec::new();
+    let mut rest = &mut mmap_w[..];
+    for i in 0..n
+    {
+	let (seg, rest2) = rest.split_at_mut(valid_lengths[i]);
+	segments.push(Mutex::new(seg)); rest=rest2;
+    }
+
+    let _ = (0..n).into_par_iter().map(|i| v[i].write_out(&mmap_r, &segments[i]));
+    mmap_w.flush()?;
+    Ok(())
 }
 
 fn main() {
@@ -253,4 +317,5 @@ fn main() {
 
     // first version: store them
     let chunked_labels:Vec<BitVec> = v.par_iter().map(|a| mark_dupes(&xys_under_rwlock, sharding_prime, a.start_line, a.end_line, &mmap[a.start_ix..a.end_ix])).collect();
+    emit_uncancelled_lines(args.outfn, &v, &mmap).unwrap();
 }
