@@ -18,9 +18,10 @@ use bitvec::prelude::*;
 #[derive(Debug, Clone)]
 struct ParseError;
 
-impl ToString for ParseError
-{
-  fn to_string(&self) -> String { "Parsing error".to_string() }
+impl ToString for ParseError {
+    fn to_string(&self) -> String {
+        "Parsing error".to_string()
+    }
 }
 
 #[derive(Debug, Parser)]
@@ -101,8 +102,8 @@ fn fast_read_unsigned(number: &[u8]) -> Result<u64, ParseError> {
 
 fn fast_read_signed(number: &[u8]) -> Result<i64, ParseError> {
     if number[0] == b'-' {
-       let n = fast_read_unsigned(&number[1..])?;
-       Ok(-(n as i64))
+        let n = fast_read_unsigned(&number[1..])?;
+        Ok(-(n as i64))
     } else {
         let n = fast_read_unsigned(number)?;
         Ok(n as i64)
@@ -115,7 +116,10 @@ fn fast_read_xy(xy: &[u8]) -> Result<SieveIndex, ParseError> {
     //  println!("{} {} {}  {} {} {}", xy[colon-1], xy[colon], xy[colon+1], xy[comma-1], xy[comma], xy[comma+1]);
     let xx = fast_read_signed(&xy[0..comma]);
     let yy = fast_read_unsigned(&xy[comma + 1..colon]);
-    Ok(SieveIndex { x: xx?, y: (yy? as u32) })
+    Ok(SieveIndex {
+        x: xx?,
+        y: (yy? as u32),
+    })
 }
 
 // note that Chunk.line_starts has *one more entry than the number of lines*
@@ -177,19 +181,23 @@ impl Chunk<'_> {
             self.line_starts[self.line_starts.len() - 2],
             self.line_starts[self.line_starts.len() - 1]
         );
-	println!("Last three bytes of my src are 0x{:02x} 0x{:02x} 0x{:02x}", self.chunk[self.chunk.len()-3],
-	self.chunk[self.chunk.len()-2],
-	self.chunk[self.chunk.len()-1]);
+        println!(
+            "Last three bytes of my src are 0x{:02x} 0x{:02x} 0x{:02x}",
+            self.chunk[self.chunk.len() - 3],
+            self.chunk[self.chunk.len() - 2],
+            self.chunk[self.chunk.len() - 1]
+        );
 
-	let mut ptr: usize = 0;
+        let mut ptr: usize = 0;
         for i in 0..=self.line_starts.len() - 2 {
             if self.line_valid[i] {
                 let mut line_length = self.line_starts[i + 1] - self.line_starts[i];
-		if (i == self.line_starts.len()-1) { line_length -= 1; }
-		if ((ptr+line_length) as i64 - dest.len() as i64).abs() < 100
-		{
-		  println!("Calling memcpy on my line {} (I have {} lines); src {}+{} dest {}+{} src_len {} dest_len {}", i, self.line_starts.len(), self.line_starts[i], self.line_starts[i]+line_length, ptr, ptr+line_length, self.chunk.len(), dest.len());
-		}
+                if (i == self.line_starts.len() - 1) {
+                    line_length -= 1;
+                }
+                if ((ptr + line_length) as i64 - dest.len() as i64).abs() < 100 {
+                    println!("Calling memcpy on my line {} (I have {} lines); src {}+{} dest {}+{} src_len {} dest_len {}", i, self.line_starts.len(), self.line_starts[i], self.line_starts[i]+line_length, ptr, ptr+line_length, self.chunk.len(), dest.len());
+                }
                 (&mut dest[ptr..ptr + line_length]).copy_from_slice(
                     &self.chunk[self.line_starts[i]..self.line_starts[i] + line_length],
                 );
@@ -205,7 +213,7 @@ impl Chunk<'_> {
         sharding_prime: usize,
     ) -> (usize, Vec<usize>) {
         let mut lines_read = 0;
-	let mut bad_line_vector = Vec::new();
+        let mut bad_line_vector = Vec::new();
         for i in 0..=(self.end_line - self.start_line) {
             if self.line_valid[i] {
                 lines_read += 1;
@@ -215,10 +223,14 @@ impl Chunk<'_> {
                 // in which case we mark the line as invalid and carry on
                 match xy_fallible {
                     Err(err) => {
-                        println!("Problem parsing line {}: {}", i + self.start_line, err.to_string());
-			// because we're doing this without being able to modify self,
-			// we can't do "self.line_valid.set(i, false);"
-			// instead we record the bad line for a later serial marking pass
+                        println!(
+                            "Problem parsing line {}: {}",
+                            i + self.start_line,
+                            err.to_string()
+                        );
+                        // because we're doing this without being able to modify self,
+                        // we can't do "self.line_valid.set(i, false);"
+                        // instead we record the bad line for a later serial marking pass
                         bad_line_vector.push(i);
                     }
                     Ok(xy) => {
@@ -249,9 +261,9 @@ impl Chunk<'_> {
         let mut duplicates = 0;
         for i in 0..self.line_valid.len() {
             if self.line_valid[i] {
-	        // by the time we're calling this function, we have already done fast_read_xy on
-		// every line in the file and marked unreadable ones as invalid,
-		// so we can unwrap() and the panic if it's unreadable is a logic error
+                // by the time we're calling this function, we have already done fast_read_xy on
+                // every line in the file and marked unreadable ones as invalid,
+                // so we can unwrap() and the panic if it's unreadable is a logic error
                 let xy = fast_read_xy(&self.chunk[self.line_starts[i]..]).unwrap();
                 let shard: usize = (xy.x.rem_euclid(sharding_prime as i64)) as usize
                     + sharding_prime * (xy.y.rem_euclid(sharding_prime as u32) as usize)
@@ -392,19 +404,22 @@ fn main() {
     let n_comments: usize = v.par_iter_mut().map(|a| a.invalidate_comments()).sum();
     println!("{} comment lines found\n", n_comments);
 
-    let og_pair: Vec<(usize,Vec<usize>)> = v
+    let og_pair: Vec<(usize, Vec<usize>)> = v
         .par_iter()
         .map(|a| a.sharded_read(&xys_under_rwlock, sharding_prime))
         .collect();
-    let og: (usize,usize) = og_pair.iter().fold((0,0), |(sx,sy),(x,y)| {(sx+x,sy+y.len())});
-    println!("{} non-comment lines read for sharding, {} bad\n", og.0, og.1);
+    let og: (usize, usize) = og_pair
+        .iter()
+        .fold((0, 0), |(sx, sy), (x, y)| (sx + x, sy + y.len()));
+    println!(
+        "{} non-comment lines read for sharding, {} bad\n",
+        og.0, og.1
+    );
 
-    for a in 0..n_chunks
-    {
-      for b in &(og_pair[a].1)
-      {
-        v[a].line_valid.set(*b,false);
-      }
+    for a in 0..n_chunks {
+        for b in &(og_pair[a].1) {
+            v[a].line_valid.set(*b, false);
+        }
     }
 
     println!(
