@@ -1,7 +1,6 @@
 use memmap2::MmapOptions;
 use std::fs::File;
 use std::io;
-use std::io::Write;
 
 use std::collections::HashMap;
 
@@ -90,11 +89,11 @@ fn fast_read_unsigned(number: &[u8]) -> Result<u64, ParseError> {
     }
 
     let mut k: u64 = 0;
-    let L = number.len() - 1;
-    let mut M = 1;
-    for r in 0..=L {
-        k = k + M * ((number[L - r] - 48) as u64);
-        M = M * 10
+    let l = number.len() - 1;
+    let mut m = 1;
+    for r in 0..=l {
+        k = k + m * ((number[l - r] - 48) as u64);
+        m = m * 10
     }
     Ok(k)
 }
@@ -132,8 +131,8 @@ impl Chunk<'_> {
     pub fn identify_lines(&mut self) -> usize {
         let mut nlines: usize = 0;
         let mut ptr: usize = 0;
-        let L = self.chunk.len();
-        while ptr < L {
+        let chunk_len = self.chunk.len();
+        while ptr < chunk_len {
             self.line_starts.push(ptr);
             let eol = find_fast_byte_after(&self.chunk[ptr..], b'\n');
             nlines = 1 + nlines;
@@ -172,7 +171,7 @@ impl Chunk<'_> {
         for i in 0..=self.line_starts.len() - 2 {
             if self.line_valid[i] {
                 let mut line_length = self.line_starts[i + 1] - self.line_starts[i];
-                if (i == self.line_starts.len() - 1) {
+                if i == self.line_starts.len() - 1 {
                     line_length -= 1;
                 }
                 (&mut dest[ptr..ptr + line_length]).copy_from_slice(
@@ -336,7 +335,7 @@ fn main() {
     }
 
     let n_shards: usize = sharding_prime * sharding_prime - 1;
-    let mut xys: Vec<Mutex<HashMap<SieveIndex, usize>>> = (0..n_shards).map(|_| Mutex::new(HashMap::new())).collect();
+    let xys: Vec<Mutex<HashMap<SieveIndex, usize>>> = (0..n_shards).map(|_| Mutex::new(HashMap::new())).collect();
 
     // count the lines (needed so each chunk knows where it starts)
     let lines_per_chunk: Vec<usize> = v.par_iter_mut().map(|a| a.identify_lines()).collect();
