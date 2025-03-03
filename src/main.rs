@@ -6,7 +6,6 @@ use std::io::Write;
 use std::collections::HashMap;
 
 use std::sync::Mutex;
-use std::sync::RwLock;
 
 use clap::Parser;
 
@@ -209,7 +208,7 @@ impl Chunk<'_> {
 
     pub fn sharded_read(
         &self,
-        shards: &RwLock<Vec<Mutex<HashMap<SieveIndex, usize>>>>,
+        shards: &Vec<Mutex<HashMap<SieveIndex, usize>>>,
         sharding_prime: usize,
     ) -> (usize, Vec<usize>) {
         let mut lines_read = 0;
@@ -237,8 +236,7 @@ impl Chunk<'_> {
                         let shard: usize = (xy.x.rem_euclid(sharding_prime as i64)) as usize
                             + sharding_prime * (xy.y.rem_euclid(sharding_prime as u32) as usize)
                             - 1;
-                        let shards_reader = shards.read().unwrap();
-                        let shard_mutex = shards_reader.get(shard).unwrap();
+                        let shard_mutex = shards.get(shard).unwrap();
                         // block where we actually need to do something locked
                         {
                             let mut data = shard_mutex.lock().unwrap();
@@ -255,7 +253,7 @@ impl Chunk<'_> {
 
     pub fn mark_dupes(
         &mut self,
-        shards: &RwLock<Vec<Mutex<HashMap<SieveIndex, usize>>>>,
+        shards: &Vec<Mutex<HashMap<SieveIndex, usize>>>,
         sharding_prime: usize,
     ) -> usize {
         let mut duplicates = 0;
@@ -268,10 +266,7 @@ impl Chunk<'_> {
                 let shard: usize = (xy.x.rem_euclid(sharding_prime as i64)) as usize
                     + sharding_prime * (xy.y.rem_euclid(sharding_prime as u32) as usize)
                     - 1;
-                let shards_reader = shards.read().unwrap();
-                let shard_mutex = shards_reader.get(shard).unwrap();
-                // ideally I'd have a second version of the data without the mutex at this point
-                // because it's read-only access
+                let shard_mutex = shards.get(shard).unwrap();
                 {
                     let data = shard_mutex.lock().unwrap();
                     let current_line = self.start_line + i;
@@ -368,7 +363,6 @@ fn main() {
     {
 	xys.push(Mutex::new(HashMap::new()));
     }
-    let xys_under_rwlock: RwLock<_> = RwLock::new(xys);
 
     // count the lines (needed so each chunk knows where it starts)
     let lines_per_chunk: Vec<usize> = v.par_iter_mut().map(|a| a.identify_lines()).collect();
@@ -409,7 +403,7 @@ fn main() {
 
     let og_pair: Vec<(usize, Vec<usize>)> = v
         .par_iter()
-        .map(|a| a.sharded_read(&xys_under_rwlock, sharding_prime))
+        .map(|a| a.sharded_read(&xys, sharding_prime))
         .collect();
     let og: (usize, usize) = og_pair
         .iter()
@@ -427,10 +421,7 @@ fn main() {
 
     println!(
         "Chunk 0 of sharded read has {} entries (expect about {})",
-        xys_under_rwlock
-            .read()
-            .unwrap()
-            .get(0)
+        xys .get(0)
             .unwrap()
             .lock()
             .unwrap()
@@ -438,13 +429,9 @@ fn main() {
         og.0 / n_shards
     );
 
-    // Now that we've done the part requiring aggressive locking,
-    // can we make the thing read-only for the part where we do the labelling,
-    // counting and output?
-
     let n_duplicates: usize = v
         .par_iter_mut()
-        .map(|a| a.mark_dupes(&xys_under_rwlock, sharding_prime))
+        .map(|a| a.mark_dupes(&xys, sharding_prime))
         .sum();
     println!("{} duplicates found", n_duplicates);
     emit_uncancelled_lines(args.outfn, &v).unwrap();
