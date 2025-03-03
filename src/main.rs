@@ -209,7 +209,7 @@ impl Chunk<'_> {
 
     pub fn sharded_read(
         &self,
-        shards: &RwLock<[Mutex<HashMap<SieveIndex, usize>>]>,
+        shards: &RwLock<Vec<Mutex<HashMap<SieveIndex, usize>>>>,
         sharding_prime: usize,
     ) -> (usize, Vec<usize>) {
         let mut lines_read = 0;
@@ -255,7 +255,7 @@ impl Chunk<'_> {
 
     pub fn mark_dupes(
         &mut self,
-        shards: &RwLock<[Mutex<HashMap<SieveIndex, usize>>]>,
+        shards: &RwLock<Vec<Mutex<HashMap<SieveIndex, usize>>>>,
         sharding_prime: usize,
     ) -> usize {
         let mut duplicates = 0;
@@ -346,7 +346,7 @@ fn main() {
 
     // We want really quite a lot of shards to avoid lock contention between the threads
 
-    const sharding_prime: usize = 97;
+    let sharding_prime: usize = 397;
     let mut v: [Chunk; n_chunks] = [0; n_chunks].map(|_| Chunk::new());
 
     v[0].start_ix = 0;
@@ -362,9 +362,12 @@ fn main() {
         a.chunk = &mmap[a.start_ix..=a.end_ix];
     }
 
-    const n_shards: usize = sharding_prime * sharding_prime - 1;
-    let xys: [Mutex<HashMap<SieveIndex, usize>>; n_shards] =
-        [0; n_shards].map(|_| Mutex::new(HashMap::new()));
+    let n_shards: usize = sharding_prime * sharding_prime - 1;
+    let mut xys: Vec<Mutex<HashMap<SieveIndex, usize>>> = Vec::new();
+    for a in 0..n_shards
+    {
+	xys.push(Mutex::new(HashMap::new()));
+    }
     let xys_under_rwlock: RwLock<_> = RwLock::new(xys);
 
     // count the lines (needed so each chunk knows where it starts)
