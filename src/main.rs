@@ -289,16 +289,16 @@ fn emit_uncancelled_lines(output_filename: String, v: &[Chunk]) -> io::Result<()
     for i in 0..n {
         let (seg, rest2) = rest.split_at_mut(valid_lengths[i]);
         segments.push(Mutex::new(seg));
-        println!("Segment {} created with size {}", i, valid_lengths[i]);
         rest = rest2;
     }
-
+    println!("Writing out uncancelled lines");
     let out_bytes: usize = (0..n)
         .into_par_iter()
         .map(|i| v[i].write_out(&segments[i]))
         .sum();
     println!("Wrote out {} bytes", out_bytes);
     mmap_w.flush()?;
+    println!("mmap flush complete");
     Ok(())
 }
 
@@ -309,16 +309,17 @@ fn main() {
     let mmap = unsafe { MmapOptions::new().map(&file).unwrap() };
     let siz: usize = mmap.len();
     let sz: u64 = siz as u64;
-    println!("File is {} bytes long", siz);
 
     // Chunks for handling the file in a multi-threaded way
     // We want each chunk to begin just after an 0x0a byte
     // and end at an 0x0a byte
     let n_chunks: usize = siz/1048576;
 
+    println!("File is {} bytes long; using {} chunks", siz, n_chunks);
+
     // We want really quite a lot of shards to avoid lock contention between the threads
 
-    let sharding_prime: usize = 397;
+    let sharding_prime: usize = 997;
     let mut v: Vec<Chunk> = (0..n_chunks).map(|_| Chunk::new()).collect();
 
     v[0].start_ix = 0;
@@ -348,7 +349,7 @@ fn main() {
         v[a].end_line = nx - 1;
     }
 
-    for a in 0..n_chunks {
+/*    for a in 0..n_chunks {
         let mut t = v[a].start_ix;
         let mut ll = 0;
         while mmap[t] == 0x23 {
@@ -367,7 +368,7 @@ fn main() {
             "{} {}..={} ({}..={}) {} {}",
             a, v[a].start_ix, v[a].end_ix, v[a].start_line, v[a].end_line, foo.x, foo.y
         )
-    }
+    } */
 
     // mark all the comment lines as invalid
 
@@ -401,7 +402,7 @@ fn main() {
             .len(),
         og.0 / n_shards
     );
-
+    println!("Starting duplicate removal");
     let n_duplicates: usize = v
         .par_iter_mut()
         .map(|a| a.mark_dupes(&xys, sharding_prime))
