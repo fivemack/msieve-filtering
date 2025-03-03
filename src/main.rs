@@ -168,34 +168,12 @@ impl Chunk<'_> {
 
     pub fn write_out(&self, dest_m: &Mutex<&mut [u8]>) -> usize {
         let mut dest = (*dest_m).lock().unwrap();
-        println!(
-            "Writing out from chunk {}..={} to dest slice of size {}",
-            self.start_ix,
-            self.end_ix,
-            dest.len()
-        );
-        println!(
-            "Chunk size is {}, last two self.line_starts are {} {}",
-            self.chunk.len(),
-            self.line_starts[self.line_starts.len() - 2],
-            self.line_starts[self.line_starts.len() - 1]
-        );
-        println!(
-            "Last three bytes of my src are 0x{:02x} 0x{:02x} 0x{:02x}",
-            self.chunk[self.chunk.len() - 3],
-            self.chunk[self.chunk.len() - 2],
-            self.chunk[self.chunk.len() - 1]
-        );
-
         let mut ptr: usize = 0;
         for i in 0..=self.line_starts.len() - 2 {
             if self.line_valid[i] {
                 let mut line_length = self.line_starts[i + 1] - self.line_starts[i];
                 if (i == self.line_starts.len() - 1) {
                     line_length -= 1;
-                }
-                if ((ptr + line_length) as i64 - dest.len() as i64).abs() < 100 {
-                    println!("Calling memcpy on my line {} (I have {} lines); src {}+{} dest {}+{} src_len {} dest_len {}", i, self.line_starts.len(), self.line_starts[i], self.line_starts[i]+line_length, ptr, ptr+line_length, self.chunk.len(), dest.len());
                 }
                 (&mut dest[ptr..ptr + line_length]).copy_from_slice(
                     &self.chunk[self.line_starts[i]..self.line_starts[i] + line_length],
@@ -337,12 +315,12 @@ fn main() {
     // Chunks for handling the file in a multi-threaded way
     // We want each chunk to begin just after an 0x0a byte
     // and end at an 0x0a byte
-    const n_chunks: usize = 280;
+    let n_chunks: usize = siz/1048576;
 
     // We want really quite a lot of shards to avoid lock contention between the threads
 
     let sharding_prime: usize = 397;
-    let mut v: [Chunk; n_chunks] = [0; n_chunks].map(|_| Chunk::new());
+    let mut v: Vec<Chunk> = (0..n_chunks).map(|_| Chunk::new()).collect();
 
     v[0].start_ix = 0;
     v[n_chunks - 1].end_ix = siz - 1;
@@ -358,11 +336,7 @@ fn main() {
     }
 
     let n_shards: usize = sharding_prime * sharding_prime - 1;
-    let mut xys: Vec<Mutex<HashMap<SieveIndex, usize>>> = Vec::new();
-    for a in 0..n_shards
-    {
-	xys.push(Mutex::new(HashMap::new()));
-    }
+    let mut xys: Vec<Mutex<HashMap<SieveIndex, usize>>> = (0..n_shards).map(|_| Mutex::new(HashMap::new())).collect();
 
     // count the lines (needed so each chunk knows where it starts)
     let lines_per_chunk: Vec<usize> = v.par_iter_mut().map(|a| a.identify_lines()).collect();
