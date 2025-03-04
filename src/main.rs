@@ -12,6 +12,8 @@ use rayon::prelude::*;
 
 use bitvec::prelude::*;
 
+pub mod saturating_trits;
+
 // need an error type
 #[derive(Debug, Clone)]
 struct ParseError;
