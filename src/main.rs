@@ -29,6 +29,12 @@ pub struct PhiltreCmdLine {
     infn: String,
     /// Output filename
     outfn: String,
+    /// Sharding prime
+    #[arg(long, short, default_value_t=97)]
+    shard: usize,
+    /// Chunk size (megabytes)
+    #[arg(long, short, default_value_t=1)]
+    chunk: usize
 }
 
 #[derive(Clone, Hash)]
@@ -313,13 +319,14 @@ fn main() {
     // Chunks for handling the file in a multi-threaded way
     // We want each chunk to begin just after an 0x0a byte
     // and end at an 0x0a byte
-    let n_chunks: usize = siz/1048576;
+    let chunk_size:usize = args.chunk * 1048576;
+    let n_chunks: usize = siz/chunk_size;
 
     println!("File is {} bytes long; using {} chunks", siz, n_chunks);
 
     // We want really quite a lot of shards to avoid lock contention between the threads
 
-    let sharding_prime: usize = 997;
+    let sharding_prime: usize = args.shard;
     let mut v: Vec<Chunk> = (0..n_chunks).map(|_| Chunk::new()).collect();
 
     v[0].start_ix = 0;
