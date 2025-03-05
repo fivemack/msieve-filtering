@@ -24,6 +24,19 @@ impl ToString for ParseError {
     }
 }
 
+#[derive(Debug, Clone)]
+struct PrimeError { naughty_number: u64 }
+
+impl ToString for PrimeError {
+    fn to_string(&self) -> String {
+    format!("Composite 'prime' {}", self.naughty_number)
+    }
+}
+
+impl PrimeError {
+    pub fn new(bad: u64) -> PrimeError { PrimeError { naughty_number: bad} }
+}
+
 #[derive(Debug, Parser)]
 #[clap(name = "philtre", version = "0.0.0", author = "Tom Womack")]
 pub struct PhiltreCmdLine {
@@ -86,6 +99,49 @@ fn find_fast_byte_after(start: &[u8], target: u8) -> usize {
     return start.len();
 }
 
+fn compress_prime(number: u64) -> Result<u64, PrimeError>
+{
+  let compressor: [u8; 210] = [48, 0, 48, 48, 48, 48, 48, 48, 48, 48, 48, 1, 48, 2, 48, 48, 48, 3, 48, 4, 48,
+                               48, 48, 5, 48, 48, 48, 48, 48, 6, 48, 7, 48, 48, 48, 48, 48, 8, 48, 48, 48, 9,
+			       48, 10, 48, 48, 48, 11, 48, 48, 48, 48, 48, 12, 48, 48, 48, 48, 48, 13, 48, 14,
+			       48, 48, 48, 48, 48, 15, 48, 48, 48, 16, 48, 17, 48, 48, 48, 48, 48, 18, 48, 48,
+			       48, 19, 48, 48, 48, 48, 48, 20, 48, 48, 48, 48, 48, 48, 48, 21, 48, 48, 48, 22,
+			       48, 23, 48, 48, 48, 24, 48, 25, 48, 48, 48, 26, 48, 48, 48, 48, 48, 48, 48, 27,
+			       48, 48, 48, 48, 48, 28, 48, 48, 48, 29, 48, 48, 48, 48, 48, 30, 48, 31, 48, 48,
+			       48, 32, 48, 48, 48, 48, 48, 33, 48, 34, 48, 48, 48, 48, 48, 35, 48, 48, 48, 48,
+			       48, 36, 48, 48, 48, 37, 48, 38, 48, 48, 48, 39, 48, 48, 48, 48, 48, 40, 48, 41,
+			       48, 48, 48, 48, 48, 42, 48, 48, 48, 43, 48, 44, 48, 48, 48, 45, 48, 46, 48, 48,
+			       48, 48, 48, 48, 48, 48, 48, 47];
+
+  if number<210 { return Ok(number) }
+  let rem = number%210;
+  let cc = compressor[rem as usize] as u64;
+  if cc == 48 { return Err(PrimeError::new(number)) }
+  let b = number/210;
+  Ok(210+48*b+cc)
+}
+
+fn fast_read_hex(number: &[u8]) -> Result<u64, ParseError>
+{
+  let mut k: u64 = 0;
+  let l = number.len()-1;
+  let mut m = 1;
+  for r in 0..=l
+  {
+    let ascii = number[l-r];
+    let hex = match ascii
+    {
+      48..57 => ascii-48,
+      97..102 => ascii+10-97,
+      65..70 => ascii+10-65,
+      _ => { return Err(ParseError) }
+    };
+    k = k + m * (hex as u64);
+    m = m*16;
+  }
+  Ok(k)
+}
+
 fn fast_read_unsigned(number: &[u8]) -> Result<u64, ParseError> {
     if number.len() > 16 {
         println!("Unexpectedly long integer of {} characters", number.len());
@@ -126,6 +182,11 @@ fn fast_read_xy(xy: &[u8]) -> Result<SieveIndex, ParseError> {
         x: xx?,
         y: (yy? as u32),
     })
+}
+
+fn handle_line() -> Result<(), ParseError>
+{
+	todo!();
 }
 
 // note that Chunk.line_starts has *one more entry than the number of lines*
