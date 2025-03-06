@@ -13,6 +13,7 @@ use rayon::prelude::*;
 use bitvec::prelude::*;
 
 pub mod saturating_trits;
+use crate::saturating_trits::STritArray;
 
 // need an error type
 #[derive(Debug, Clone)]
@@ -35,6 +36,17 @@ impl ToString for PrimeError {
 
 impl PrimeError {
     pub fn new(bad: u64) -> PrimeError { PrimeError { naughty_number: bad} }
+}
+
+// and an overarching error type
+
+#[derive(Debug)]
+enum PhiltreError { ParseError, PrimeError }
+
+struct SingletonCounter
+{
+  rational_side: STritArray,
+  algebraic_side: STritArray
 }
 
 #[derive(Debug, Parser)]
@@ -324,6 +336,31 @@ impl Chunk<'_> {
             }
         }
         duplicates
+    }
+
+    pub fn count_singletons(
+        &mut self,
+	counter: &SingletonCounter) -> usize
+    {
+	let mut bad_lines = 0;
+        for i in 0..self.line_valid.len() {
+	    if self.line_valid[i] {
+                let first_colon = find_fast_byte_after(&self.chunk[self.line_starts[i]..], b':');
+                let second_colon = find_fast_byte_after(&self.chunk[self.line_starts[i]+first_colon..], b':');
+		let newline = find_fast_byte_after(&self.chunk[self.line_starts[i]+first_colon+second_colon..], b'\n');
+		let rat_slice = &self.chunk[self.line_starts[i]+first_colon .. self.line_starts[i]+first_colon+second_colon];
+		let alg_slice = &self.chunk[self.line_starts[i]+first_colon+second_colon .. self.line_starts[i]+first_colon+second_colon+newline];
+		let rat_ok = count_it(rat_slice, counter.rational_side);
+		let alg_ok = count_it(alg_slice, counter.algebraic_side);
+		if rat_ok.is_err() || alg_ok.is_err()
+		{
+		    self.line_valid.set(i, false);
+		    bad_lines += 1;
+		}
+    	    }
+	}
+
+	bad_lines
     }
 }
 

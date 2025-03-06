@@ -4,7 +4,7 @@ use std::sync::Mutex;
 
 enum SaturatingTritValue { None, One, Lots }
 
-struct STritArray
+pub struct STritArray
 {
   data: Vec<Mutex<Vec<u8>>>,
   ms: usize,
