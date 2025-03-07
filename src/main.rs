@@ -88,6 +88,22 @@ struct Chunk<'a> {
     chunk: &'a [u8],
 }
 
+struct LineIterator<'b>
+{
+    cc: &'b Chunk,
+    line_no: usize
+}
+
+impl<'b Iterator for LineIterator<'b>
+{
+    type Item = &'b [u8];
+    fn next(&mut self) -> Option<Self::Item>
+    {
+        while !self.cc.line_valid[self.line_no] { self.line_no++ }
+	Some(&self.cc.chunk[self.cc.line_starts[self.line_no]..self.cc.line_starts[1+self.line_no]])
+    }
+}
+
 impl Chunk<'_> {
     pub fn new() -> Self {
         Chunk {
@@ -197,6 +213,11 @@ fn fast_read_xy(xy: &[u8]) -> Result<SieveIndex, ParseError> {
 }
 
 fn handle_line() -> Result<(), ParseError>
+{
+	todo!();
+}
+
+fn count_it(slice: &[u8], counter: &mut STritArray) -> Result<(), PhiltreError>
 {
 	todo!();
 }
@@ -340,7 +361,7 @@ impl Chunk<'_> {
 
     pub fn count_singletons(
         &mut self,
-	counter: &SingletonCounter) -> usize
+	counter: &mut SingletonCounter) -> usize
     {
 	let mut bad_lines = 0;
         for i in 0..self.line_valid.len() {
@@ -350,8 +371,8 @@ impl Chunk<'_> {
 		let newline = find_fast_byte_after(&self.chunk[self.line_starts[i]+first_colon+second_colon..], b'\n');
 		let rat_slice = &self.chunk[self.line_starts[i]+first_colon .. self.line_starts[i]+first_colon+second_colon];
 		let alg_slice = &self.chunk[self.line_starts[i]+first_colon+second_colon .. self.line_starts[i]+first_colon+second_colon+newline];
-		let rat_ok = count_it(rat_slice, counter.rational_side);
-		let alg_ok = count_it(alg_slice, counter.algebraic_side);
+		let rat_ok = count_it(rat_slice, &mut counter.rational_side);
+		let alg_ok = count_it(alg_slice, &mut counter.algebraic_side);
 		if rat_ok.is_err() || alg_ok.is_err()
 		{
 		    self.line_valid.set(i, false);
@@ -515,5 +536,20 @@ fn main() {
         .map(|a| a.mark_dupes(&xys, sharding_prime))
         .sum();
     println!("{} duplicates found", n_duplicates);
-    emit_uncancelled_lines(args.outfn, &v).unwrap();
+
+    // And now for the singletons
+    let samples_per_chunk: usize = 1000;
+    let mut biggest_alg_prime: usize = 0;
+    let mut biggest_rat_prime: usize = 0;
+    for vv in v
+    {
+	let xrp = vv.valid_lines().take(1000).map(|a| rat_primes(a).max()).max();
+	let xap = vv.valid_lines().take(1000).map(|a| alg_primes(a).max()).max();
+	if xrp>biggest_rat_prime { biggest_rat_prime = xrp; }
+	if xap>biggest_alg_prime { biggest_alg_prime = xap; }
+    }
+    let rbits = (((biggest_rat_prime as f64).log2()).ceil()) as usize;
+    let abits = (((biggest_alg_prime as f64).log2()).ceil()) as usize;	
+    println!("From sampling, rational and algebraic primes are 2^{} (saw {}) and 2^{} (saw {})", rbits, biggest_rat_prime, abits, biggest_alg_prime)
+//    emit_uncancelled_lines(args.outfn, &v).unwrap();
 }
