@@ -466,23 +466,28 @@ impl Chunk<'_> {
 
     pub fn count_singletons(&mut self, counter: &SingletonCounter) -> usize {
         let mut bad_lines = 0;
-        for i in 0..self.line_valid.len() {
-            if self.line_valid[i] {
-                let first_colon = find_fast_byte_after(&self.chunk[self.line_starts[i]..], b':');
-                let second_colon =
-                    find_fast_byte_after(&self.chunk[self.line_starts[i] + first_colon..], b':');
+        for numbered_line in self.numbered_valid_lines()
+	{
+	    let (line_number,line) = numbered_line; 
+                let first_colon = find_fast_byte_after(line, b':');
+                let second_colon = first_colon + 1 + 
+                    find_fast_byte_after(&self.chunk[self.line_starts[i] + first_colon + 1..], b':');
                 let newline = find_fast_byte_after(
-                    &self.chunk[self.line_starts[i] + first_colon + second_colon..],
+                    &self.chunk[self.line_starts[i]..],
                     b'\n',
                 );
+		println!("first colon {} second colon {} newline {} read {} {} {}",
+		first_colon, second_colon, newline,
+		self.chunk[first_colon], self.chunk[second_colon], self.chunk[newline]);
                 let rat_slice = &self.chunk[self.line_starts[i] + first_colon
                     ..self.line_starts[i] + first_colon + second_colon];
-                let alg_slice = &self.chunk[self.line_starts[i] + first_colon + second_colon
+                let alg_slice = &self.chunk[self.line_starts[i] + first_colon + second_colon + 1
                     ..self.line_starts[i] + first_colon + second_colon + newline];
+		println!("rat slice {} alg slice {}", std::str::from_utf8(rat_slice).unwrap(), std::str::from_utf8(alg_slice).unwrap());
                 let rat_ok = count_it(rat_slice, &counter.rational_side);
                 let alg_ok = count_it(alg_slice, &counter.algebraic_side);
                 if rat_ok.is_err() || alg_ok.is_err() {
-                    self.line_valid.set(i, false);
+                    self.line_valid.set(line_number, false);
                     bad_lines += 1;
                 }
             }
