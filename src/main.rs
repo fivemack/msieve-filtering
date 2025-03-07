@@ -15,7 +15,6 @@ use bitvec::prelude::*;
 pub mod saturating_trits;
 use crate::saturating_trits::STritArray;
 
-use std::cmp::max;
 
 // need an error type
 #[derive(Debug, Clone)]
@@ -28,30 +27,46 @@ impl ToString for ParseError {
 }
 
 #[derive(Debug, Clone)]
-struct PrimeError { naughty_number: u64 }
+struct PrimeError {
+    naughty_number: u64,
+}
 
 impl ToString for PrimeError {
     fn to_string(&self) -> String {
-    format!("Composite 'prime' {}", self.naughty_number)
+        format!("Composite 'prime' {}", self.naughty_number)
     }
 }
 
 impl PrimeError {
-    pub fn new(bad: u64) -> PrimeError { PrimeError { naughty_number: bad} }
+    pub fn new(bad: u64) -> PrimeError {
+        PrimeError {
+            naughty_number: bad,
+        }
+    }
 }
 
 // and an overarching error type
 
 #[derive(Debug)]
-enum PhiltreError { ParseError(ParseError), PrimeError(PrimeError) }
+enum PhiltreError {
+    ParseError(ParseError),
+    PrimeError(PrimeError),
+}
 
-impl From<PrimeError> for PhiltreError { fn from(e: PrimeError) -> PhiltreError { return PhiltreError::PrimeError(e); } }
-impl From<ParseError> for PhiltreError { fn from(e: ParseError) -> PhiltreError { return PhiltreError::ParseError(e); } }
+impl From<PrimeError> for PhiltreError {
+    fn from(e: PrimeError) -> PhiltreError {
+        return PhiltreError::PrimeError(e);
+    }
+}
+impl From<ParseError> for PhiltreError {
+    fn from(e: ParseError) -> PhiltreError {
+        return PhiltreError::ParseError(e);
+    }
+}
 
-struct SingletonCounter
-{
-  rational_side: STritArray,
-  algebraic_side: STritArray
+struct SingletonCounter {
+    rational_side: STritArray,
+    algebraic_side: STritArray,
 }
 
 #[derive(Debug, Parser)]
@@ -62,14 +77,14 @@ pub struct PhiltreCmdLine {
     /// Output filename
     outfn: String,
     /// Sharding prime
-    #[arg(long, short, default_value_t=97)]
+    #[arg(long, short, default_value_t = 97)]
     shard: usize,
     /// Chunk size (megabytes)
-    #[arg(long, short, default_value_t=1)]
+    #[arg(long, short, default_value_t = 1)]
     chunk: usize,
     /// log(mutex size for singletons)
-    #[arg(long, short, default_value_t=7)]
-    mutex_shift: usize
+    #[arg(long, short, default_value_t = 7)]
+    mutex_shift: usize,
 }
 
 #[derive(Clone, Hash)]
@@ -96,49 +111,54 @@ struct Chunk<'a> {
     chunk: &'a [u8],
 }
 
-struct LineIterator<'b>
-{
+struct LineIterator<'b> {
     cc: &'b Chunk<'b>,
-    line_no: usize
+    line_no: usize,
 }
 
-impl<'b> Iterator for LineIterator<'b>
-{
+impl<'b> Iterator for LineIterator<'b> {
     type Item = &'b [u8];
-    fn next(&mut self) -> Option<Self::Item>
-    {
-    if self.line_no == self.cc.line_valid.len() { return None }
-        while (self.line_no < self.cc.line_valid.len() && !self.cc.line_valid[self.line_no]) { self.line_no += 1; }
-    if self.line_no == self.cc.line_valid.len() { return None }
-    let prev_line = self.line_no;
-    self.line_no += 1;
-    // return only the line, not the newline at the end
-    Some(&self.cc.chunk[self.cc.line_starts[prev_line]..self.cc.line_starts[1+prev_line]-1])
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.line_no == self.cc.line_valid.len() {
+            return None;
+        }
+        while self.line_no < self.cc.line_valid.len() && !self.cc.line_valid[self.line_no] {
+            self.line_no += 1;
+        }
+        if self.line_no == self.cc.line_valid.len() {
+            return None;
+        }
+        let prev_line = self.line_no;
+        self.line_no += 1;
+        // return only the line, not the newline at the end
+        Some(&self.cc.chunk[self.cc.line_starts[prev_line]..self.cc.line_starts[1 + prev_line] - 1])
     }
 }
 
-struct CSVIterator<'b>
-{
+struct CSVIterator<'b> {
     cc: &'b [u8],
-    dd: Option<&'b [u8]>
+    dd: Option<&'b [u8]>,
 }
 
-impl<'b> Iterator for CSVIterator<'b>
-{
+impl<'b> Iterator for CSVIterator<'b> {
     type Item = &'b [u8];
-    fn next(&mut self) -> Option<Self::Item>
-    {
-    if (self.dd.is_some()) { self.cc = self.dd.unwrap(); }
-    if (self.cc.len() == 0) { return None; }
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.dd.is_some() {
+            self.cc = self.dd.unwrap();
+        }
+        if self.cc.len() == 0 {
+            return None;
+        }
         let comma = find_fast_byte_after(self.cc, b',');
-    self.dd = Some(&self.cc[1+comma ..]);
-    return Some(&self.cc[0..comma])
+        self.dd = Some(&self.cc[1 + comma..]);
+        return Some(&self.cc[0..comma]);
     }
 }
 
-impl<'b> CSVIterator<'b>
-{
-    pub fn new(dat:&'b [u8]) -> Self { CSVIterator { cc: dat, dd: None } }
+impl<'b> CSVIterator<'b> {
+    pub fn new(dat: &'b [u8]) -> Self {
+        CSVIterator { cc: dat, dd: None }
+    }
 }
 
 impl Chunk<'_> {
@@ -164,87 +184,97 @@ fn find_fast_byte_after(start: &[u8], target: u8) -> usize {
     return start.len();
 }
 
-fn compress_prime(number: u64) -> Result<u64, PrimeError>
-{
-  let compressor: [u8; 210] = [48, 0, 48, 48, 48, 48, 48, 48, 48, 48, 48, 1, 48, 2, 48, 48, 48, 3, 48, 4, 48,
-                               48, 48, 5, 48, 48, 48, 48, 48, 6, 48, 7, 48, 48, 48, 48, 48, 8, 48, 48, 48, 9,
-                   48, 10, 48, 48, 48, 11, 48, 48, 48, 48, 48, 12, 48, 48, 48, 48, 48, 13, 48, 14,
-                   48, 48, 48, 48, 48, 15, 48, 48, 48, 16, 48, 17, 48, 48, 48, 48, 48, 18, 48, 48,
-                   48, 19, 48, 48, 48, 48, 48, 20, 48, 48, 48, 48, 48, 48, 48, 21, 48, 48, 48, 22,
-                   48, 23, 48, 48, 48, 24, 48, 25, 48, 48, 48, 26, 48, 48, 48, 48, 48, 48, 48, 27,
-                   48, 48, 48, 48, 48, 28, 48, 48, 48, 29, 48, 48, 48, 48, 48, 30, 48, 31, 48, 48,
-                   48, 32, 48, 48, 48, 48, 48, 33, 48, 34, 48, 48, 48, 48, 48, 35, 48, 48, 48, 48,
-                   48, 36, 48, 48, 48, 37, 48, 38, 48, 48, 48, 39, 48, 48, 48, 48, 48, 40, 48, 41,
-                   48, 48, 48, 48, 48, 42, 48, 48, 48, 43, 48, 44, 48, 48, 48, 45, 48, 46, 48, 48,
-                   48, 48, 48, 48, 48, 48, 48, 47];
+fn compress_prime(number: u64) -> Result<u64, PrimeError> {
+    let compressor: [u8; 210] = [
+        48, 0, 48, 48, 48, 48, 48, 48, 48, 48, 48, 1, 48, 2, 48, 48, 48, 3, 48, 4, 48, 48, 48, 5,
+        48, 48, 48, 48, 48, 6, 48, 7, 48, 48, 48, 48, 48, 8, 48, 48, 48, 9, 48, 10, 48, 48, 48, 11,
+        48, 48, 48, 48, 48, 12, 48, 48, 48, 48, 48, 13, 48, 14, 48, 48, 48, 48, 48, 15, 48, 48, 48,
+        16, 48, 17, 48, 48, 48, 48, 48, 18, 48, 48, 48, 19, 48, 48, 48, 48, 48, 20, 48, 48, 48, 48,
+        48, 48, 48, 21, 48, 48, 48, 22, 48, 23, 48, 48, 48, 24, 48, 25, 48, 48, 48, 26, 48, 48, 48,
+        48, 48, 48, 48, 27, 48, 48, 48, 48, 48, 28, 48, 48, 48, 29, 48, 48, 48, 48, 48, 30, 48, 31,
+        48, 48, 48, 32, 48, 48, 48, 48, 48, 33, 48, 34, 48, 48, 48, 48, 48, 35, 48, 48, 48, 48, 48,
+        36, 48, 48, 48, 37, 48, 38, 48, 48, 48, 39, 48, 48, 48, 48, 48, 40, 48, 41, 48, 48, 48, 48,
+        48, 42, 48, 48, 48, 43, 48, 44, 48, 48, 48, 45, 48, 46, 48, 48, 48, 48, 48, 48, 48, 48, 48,
+        47,
+    ];
 
-  if number<210 { return Ok(number) }
-  let rem = number%210;
-  let cc = compressor[rem as usize] as u64;
-  if cc == 48 { return Err(PrimeError::new(number)) }
-  let b = number/210;
-  Ok(210+48*b+cc)
+    if number < 210 {
+        return Ok(number);
+    }
+    let rem = number % 210;
+    let cc = compressor[rem as usize] as u64;
+    if cc == 48 {
+        return Err(PrimeError::new(number));
+    }
+    let b = number / 210;
+    Ok(210 + 48 * b + cc)
 }
 
-fn fast_read_hex(number: &[u8]) -> Result<u64, ParseError>
-{
-  let mut k: u64 = 0;
-  let l = number.len()-1;
-  let mut m = 1;
-  for r in 0..=l
-  {
-    let ascii = number[l-r];
-    let hex = match ascii
-    {
-      48..=57 => ascii-48,
-      97..=102 => ascii+10-97,
-      65..=70 => ascii+10-65,
-      _ => { println!("Not expecting {} in {}",ascii,std::str::from_utf8(number).unwrap()); panic!(); return Err(ParseError) }
-    };
-    k = k + m * (hex as u64);
-    m = m*16;
-  }
-  // println!("{}",k);
-  Ok(k)
+fn fast_read_hex(number: &[u8]) -> Result<u64, ParseError> {
+    let mut k: u64 = 0;
+    let l = number.len() - 1;
+    let mut m = 1;
+    for r in 0..=l {
+        let ascii = number[l - r];
+        let hex = match ascii {
+            48..=57 => ascii - 48,
+            97..=102 => ascii + 10 - 97,
+            65..=70 => ascii + 10 - 65,
+            _ => {
+                println!(
+                    "Not expecting {} in {}",
+                    ascii,
+                    std::str::from_utf8(number).unwrap()
+                );
+                panic!();
+                return Err(ParseError);
+            }
+        };
+        k = k + m * (hex as u64);
+        m = m * 16;
+    }
+    // println!("{}",k);
+    Ok(k)
 }
 
-fn parse_hex_csv(block: &[u8]) -> Result<Vec<u64>, ParseError>
-{
-  // println!("parse_hex_csv({})", std::str::from_utf8(block).unwrap());
-  let mut v: Vec<u64> = Vec::new();
-  let mut ptr = 0;
-  while ptr < block.len()
-  {
-    let comma = find_fast_byte_after(&block[ptr..], b',');
-    v.push(fast_read_hex(&block[ptr..ptr+comma])?);
-    ptr = ptr+comma+1
-  }
-  Ok(v)
+fn parse_hex_csv(block: &[u8]) -> Result<Vec<u64>, ParseError> {
+    // println!("parse_hex_csv({})", std::str::from_utf8(block).unwrap());
+    let mut v: Vec<u64> = Vec::new();
+    let mut ptr = 0;
+    while ptr < block.len() {
+        let comma = find_fast_byte_after(&block[ptr..], b',');
+        v.push(fast_read_hex(&block[ptr..ptr + comma])?);
+        ptr = ptr + comma + 1
+    }
+    Ok(v)
 }
 
-fn rat_primes(line: &[u8]) -> Result<Vec<u64>, ParseError>
-{
+fn rat_primes(line: &[u8]) -> Result<Vec<u64>, ParseError> {
     // println!("rat_primes on {}", std::str::from_utf8(line).unwrap());
     let first_colon = find_fast_byte_after(&line, b':');
-    if first_colon == line.len()
-    {
-      println!("Couldn't find rational primes in {} len={}", std::str::from_utf8(line).unwrap(), line.len());
-      return Err(ParseError);
+    if first_colon == line.len() {
+        println!(
+            "Couldn't find rational primes in {} len={}",
+            std::str::from_utf8(line).unwrap(),
+            line.len()
+        );
+        return Err(ParseError);
     }
-    let second_colon = find_fast_byte_after(&line[first_colon+1..], b':');
-    if second_colon==0
-    {
-      println!("Couldn't find second colon in {}", std::str::from_utf8(line).unwrap());
-      return Err(ParseError);
+    let second_colon = find_fast_byte_after(&line[first_colon + 1..], b':');
+    if second_colon == 0 {
+        println!(
+            "Couldn't find second colon in {}",
+            std::str::from_utf8(line).unwrap()
+        );
+        return Err(ParseError);
     }
-    parse_hex_csv(&line[first_colon+1 .. first_colon+second_colon+1])
+    parse_hex_csv(&line[first_colon + 1..first_colon + second_colon + 1])
 }
 
-fn alg_primes(line: &[u8]) -> Result<Vec<u64>, ParseError>
-{
+fn alg_primes(line: &[u8]) -> Result<Vec<u64>, ParseError> {
     let first_colon = find_fast_byte_after(&line, b':');
-    let second_colon = find_fast_byte_after(&line[first_colon+1..], b':');
-    parse_hex_csv(&line[first_colon+second_colon+2 .. line.len()-1])
+    let second_colon = find_fast_byte_after(&line[first_colon + 1..], b':');
+    parse_hex_csv(&line[first_colon + second_colon + 2..line.len() - 1])
 }
 
 fn fast_read_unsigned(number: &[u8]) -> Result<u64, ParseError> {
@@ -289,14 +319,12 @@ fn fast_read_xy(xy: &[u8]) -> Result<SieveIndex, ParseError> {
     })
 }
 
-fn count_it(slice: &[u8], counter: &STritArray) -> Result<(), PhiltreError>
-{
-  for u in CSVIterator::new(slice)
-  {
-    let p = fast_read_hex(u)?;
-    counter.increment(compress_prime(p)? as usize);
-  }
-  Ok(())
+fn count_it(slice: &[u8], counter: &STritArray) -> Result<(), PhiltreError> {
+    for u in CSVIterator::new(slice) {
+        let p = fast_read_hex(u)?;
+        counter.increment(compress_prime(p)? as usize);
+    }
+    Ok(())
 }
 
 // note that Chunk.line_starts has *one more entry than the number of lines*
@@ -436,34 +464,38 @@ impl Chunk<'_> {
         duplicates
     }
 
-    pub fn count_singletons(
-        &mut self,
-    counter: &SingletonCounter) -> usize
-    {
-    let mut bad_lines = 0;
+    pub fn count_singletons(&mut self, counter: &SingletonCounter) -> usize {
+        let mut bad_lines = 0;
         for i in 0..self.line_valid.len() {
-        if self.line_valid[i] {
+            if self.line_valid[i] {
                 let first_colon = find_fast_byte_after(&self.chunk[self.line_starts[i]..], b':');
-                let second_colon = find_fast_byte_after(&self.chunk[self.line_starts[i]+first_colon..], b':');
-        let newline = find_fast_byte_after(&self.chunk[self.line_starts[i]+first_colon+second_colon..], b'\n');
-        let rat_slice = &self.chunk[self.line_starts[i]+first_colon .. self.line_starts[i]+first_colon+second_colon];
-        let alg_slice = &self.chunk[self.line_starts[i]+first_colon+second_colon .. self.line_starts[i]+first_colon+second_colon+newline];
-        let rat_ok = count_it(rat_slice, &counter.rational_side);
-        let alg_ok = count_it(alg_slice, &counter.algebraic_side);
-        if rat_ok.is_err() || alg_ok.is_err()
-        {
-            self.line_valid.set(i, false);
-            bad_lines += 1;
-        }
+                let second_colon =
+                    find_fast_byte_after(&self.chunk[self.line_starts[i] + first_colon..], b':');
+                let newline = find_fast_byte_after(
+                    &self.chunk[self.line_starts[i] + first_colon + second_colon..],
+                    b'\n',
+                );
+                let rat_slice = &self.chunk[self.line_starts[i] + first_colon
+                    ..self.line_starts[i] + first_colon + second_colon];
+                let alg_slice = &self.chunk[self.line_starts[i] + first_colon + second_colon
+                    ..self.line_starts[i] + first_colon + second_colon + newline];
+                let rat_ok = count_it(rat_slice, &counter.rational_side);
+                let alg_ok = count_it(alg_slice, &counter.algebraic_side);
+                if rat_ok.is_err() || alg_ok.is_err() {
+                    self.line_valid.set(i, false);
+                    bad_lines += 1;
+                }
             }
+        }
+
+        bad_lines
     }
 
-    bad_lines
-    }
-
-    fn valid_lines(&self) -> LineIterator
-    {
-    LineIterator { cc: self, line_no: 0 }
+    fn valid_lines(&self) -> LineIterator {
+        LineIterator {
+            cc: self,
+            line_no: 0,
+        }
     }
 }
 
@@ -522,8 +554,8 @@ fn main() {
     // Chunks for handling the file in a multi-threaded way
     // We want each chunk to begin just after an 0x0a byte
     // and end at an 0x0a byte
-    let chunk_size:usize = args.chunk * 1048576;
-    let n_chunks: usize = siz/chunk_size;
+    let chunk_size: usize = args.chunk * 1048576;
+    let n_chunks: usize = siz / chunk_size;
 
     println!("File is {} bytes long; using {} chunks", siz, n_chunks);
 
@@ -546,7 +578,8 @@ fn main() {
     }
 
     let n_shards: usize = sharding_prime * sharding_prime - 1;
-    let xys: Vec<Mutex<HashMap<SieveIndex, usize>>> = (0..n_shards).map(|_| Mutex::new(HashMap::new())).collect();
+    let xys: Vec<Mutex<HashMap<SieveIndex, usize>>> =
+        (0..n_shards).map(|_| Mutex::new(HashMap::new())).collect();
 
     // count the lines (needed so each chunk knows where it starts)
     let lines_per_chunk: Vec<usize> = v.par_iter_mut().map(|a| a.identify_lines()).collect();
@@ -559,7 +592,7 @@ fn main() {
         v[a].end_line = nx - 1;
     }
 
-/*    for a in 0..n_chunks {
+    /*    for a in 0..n_chunks {
         let mut t = v[a].start_ix;
         let mut ll = 0;
         while mmap[t] == 0x23 {
@@ -605,11 +638,7 @@ fn main() {
 
     println!(
         "Chunk 0 of sharded read has {} entries (expect about {})",
-        xys .get(0)
-            .unwrap()
-            .lock()
-            .unwrap()
-            .len(),
+        xys.get(0).unwrap().lock().unwrap().len(),
         og.0 / n_shards
     );
     println!("Starting duplicate removal");
@@ -623,27 +652,46 @@ fn main() {
     let samples_per_chunk: usize = 100;
     let mut biggest_alg_prime: u64 = 0;
     let mut biggest_rat_prime: u64 = 0;
-    for vv in &v
-    {
-    let xrp = vv.valid_lines().take(samples_per_chunk).map(|a| *(rat_primes(a).unwrap().iter().max().unwrap())).max().unwrap();
-    let xap = vv.valid_lines().take(samples_per_chunk).map(|a| *(alg_primes(a).unwrap().iter().max().unwrap())).max().unwrap();
-    if xrp>biggest_rat_prime { biggest_rat_prime = xrp; }
-    if xap>biggest_alg_prime { biggest_alg_prime = xap; }
+    for vv in &v {
+        let xrp = vv
+            .valid_lines()
+            .take(samples_per_chunk)
+            .map(|a| *(rat_primes(a).unwrap().iter().max().unwrap()))
+            .max()
+            .unwrap();
+        let xap = vv
+            .valid_lines()
+            .take(samples_per_chunk)
+            .map(|a| *(alg_primes(a).unwrap().iter().max().unwrap()))
+            .max()
+            .unwrap();
+        if xrp > biggest_rat_prime {
+            biggest_rat_prime = xrp;
+        }
+        if xap > biggest_alg_prime {
+            biggest_alg_prime = xap;
+        }
     }
     let rbits = (((biggest_rat_prime as f64).log2()).ceil()) as usize;
     let abits = (((biggest_alg_prime as f64).log2()).ceil()) as usize;
-    println!("From sampling, rational and algebraic primes are 2^{} (saw {}) and 2^{} (saw {})", rbits, biggest_rat_prime, abits, biggest_alg_prime);
+    println!(
+        "From sampling, rational and algebraic primes are 2^{} (saw {}) and 2^{} (saw {})",
+        rbits, biggest_rat_prime, abits, biggest_alg_prime
+    );
 
     // call compress-prime on 1+(first multiple of 210 greater than 1<<rbits)
-    let rat_singleton_size = compress_prime(1+210*((209+1<<rbits)/210)).unwrap() as usize;
-    let alg_singleton_size = compress_prime(1+210*((209+1<<abits)/210)).unwrap() as usize;
+    let rat_singleton_size = compress_prime(1 + 210 * ((209 + 1 << rbits) / 210)).unwrap() as usize;
+    let alg_singleton_size = compress_prime(1 + 210 * ((209 + 1 << abits) / 210)).unwrap() as usize;
 
     let rat_singletons = STritArray::init(rat_singleton_size, args.mutex_shift);
     let alg_singletons = STritArray::init(alg_singleton_size, args.mutex_shift);
-    let sc = SingletonCounter { rational_side: rat_singletons, algebraic_side: alg_singletons };
+    let sc = SingletonCounter {
+        rational_side: rat_singletons,
+        algebraic_side: alg_singletons,
+    };
 
     println!("Initialised singleton counters");
-    let ploot:Vec<usize> = v.par_iter_mut().map(|a| a.count_singletons(&sc)).collect();
+    let ploot: Vec<usize> = v.par_iter_mut().map(|a| a.count_singletons(&sc)).collect();
 
-//    emit_uncancelled_lines(args.outfn, &v).unwrap();
+    //    emit_uncancelled_lines(args.outfn, &v).unwrap();
 }
