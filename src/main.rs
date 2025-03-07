@@ -15,7 +15,6 @@ use bitvec::prelude::*;
 pub mod saturating_trits;
 use crate::saturating_trits::STritArray;
 
-
 // need an error type
 #[derive(Debug, Clone)]
 struct ParseError;
@@ -135,6 +134,33 @@ impl<'b> Iterator for LineIterator<'b> {
     }
 }
 
+struct NumberedLineIterator<'b> {
+    cc: &'b Chunk<'b>,
+    line_no: usize,
+}
+
+impl<'b> Iterator for NumberedLineIterator<'b> {
+    type Item = (usize, &'b [u8]);
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.line_no == self.cc.line_valid.len() {
+            return None;
+        }
+        while self.line_no < self.cc.line_valid.len() && !self.cc.line_valid[self.line_no] {
+            self.line_no += 1;
+        }
+        if self.line_no == self.cc.line_valid.len() {
+            return None;
+        }
+        let prev_line = self.line_no;
+        self.line_no += 1;
+        // return only the line, not the newline at the end
+        Some((
+            prev_line,
+            &self.cc.chunk[self.cc.line_starts[prev_line]..self.cc.line_starts[1 + prev_line] - 1],
+        ))
+    }
+}
+
 struct CSVIterator<'b> {
     cc: &'b [u8],
     dd: Option<&'b [u8]>,
@@ -150,7 +176,13 @@ impl<'b> Iterator for CSVIterator<'b> {
             return None;
         }
         let comma = find_fast_byte_after(self.cc, b',');
-        self.dd = Some(&self.cc[1 + comma..]);
+        if (comma == self.cc.len())
+        // we reached the end of the string
+        {
+            self.dd = Some(&self.cc[comma..]);
+        } else {
+            self.dd = Some(&self.cc[1 + comma..]);
+        }
         return Some(&self.cc[0..comma]);
     }
 }
@@ -464,31 +496,29 @@ impl Chunk<'_> {
         duplicates
     }
 
-    pub fn count_singletons(&mut self, counter: &SingletonCounter) -> usize {
-        let mut bad_lines = 0;
-        for numbered_line in self.numbered_valid_lines()
-	{
-	    let (line_number,line) = numbered_line; 
-                let first_colon = find_fast_byte_after(line, b':');
-                let second_colon = first_colon + 1 + 
-                    find_fast_byte_after(&self.chunk[self.line_starts[i] + first_colon + 1..], b':');
-                let newline = find_fast_byte_after(
-                    &self.chunk[self.line_starts[i]..],
-                    b'\n',
-                );
-		println!("first colon {} second colon {} newline {} read {} {} {}",
-		first_colon, second_colon, newline,
-		self.chunk[first_colon], self.chunk[second_colon], self.chunk[newline]);
-                let rat_slice = &self.chunk[self.line_starts[i] + first_colon
-                    ..self.line_starts[i] + first_colon + second_colon];
-                let alg_slice = &self.chunk[self.line_starts[i] + first_colon + second_colon + 1
-                    ..self.line_starts[i] + first_colon + second_colon + newline];
-		println!("rat slice {} alg slice {}", std::str::from_utf8(rat_slice).unwrap(), std::str::from_utf8(alg_slice).unwrap());
+    pub fn count_singletons(&mut self, counter: &SingletonCounter) -> Vec<usize> {
+        let mut bad_lines = Vec::new();
+        for numbered_line in self.numbered_valid_lines() {
+            let (line_number, line) = numbered_line;
+            let first_colon = find_fast_byte_after(line, b':');
+            if (first_colon == line.len() - 1) {
+                // this is a free relation of the form 'x,0:'
+		// we can zap it and it will be regenerated later
+                bad_lines.push(line_number);
+            } else {
+                let second_colon =
+                    first_colon + 1 + find_fast_byte_after(&line[first_colon + 1..], b':');
+                /*		println!("first colon {} second colon {} read {} {}",
+                first_colon, second_colon,
+                line[first_colon], line[second_colon]); */
+
+                let rat_slice = &line[first_colon + 1..second_colon];
+                let alg_slice = &line[second_colon + 1..];
+                //		println!("rat slice {} alg slice {}", std::str::from_utf8(rat_slice).unwrap(), std::str::from_utf8(alg_slice).unwrap());
                 let rat_ok = count_it(rat_slice, &counter.rational_side);
                 let alg_ok = count_it(alg_slice, &counter.algebraic_side);
                 if rat_ok.is_err() || alg_ok.is_err() {
-                    self.line_valid.set(line_number, false);
-                    bad_lines += 1;
+                    bad_lines.push(line_number);
                 }
             }
         }
@@ -498,6 +528,13 @@ impl Chunk<'_> {
 
     fn valid_lines(&self) -> LineIterator {
         LineIterator {
+            cc: self,
+            line_no: 0,
+        }
+    }
+
+    fn numbered_valid_lines(&self) -> NumberedLineIterator {
+        NumberedLineIterator {
             cc: self,
             line_no: 0,
         }
@@ -696,7 +733,17 @@ fn main() {
     };
 
     println!("Initialised singleton counters");
-    let ploot: Vec<usize> = v.par_iter_mut().map(|a| a.count_singletons(&sc)).collect();
+    let ploot: Vec<Vec<usize>> = v.par_iter_mut().map(|a| a.count_singletons(&sc)).collect();
 
-    //    emit_uncancelled_lines(args.outfn, &v).unwrap();
+    let mut illegible:usize = 0;
+    for a in 0..n_chunks {
+    	illegible += ploot[a].len();
+        for b in &ploot[a] {
+            v[a].line_valid.set(*b, false);
+        }
+    }
+
+    println!("Marked {} lines as illegible after first singleton-count parse", illegible);
+
+    emit_uncancelled_lines(args.outfn, &v).unwrap();
 }
