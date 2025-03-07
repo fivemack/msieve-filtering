@@ -58,7 +58,7 @@ impl STritArray
   sz: sz,
   data: (0..nblocks).map(|_| { let mut v=Vec::new(); v.resize(1<<mutex_shift,0); Mutex::new(v) }).collect() } }
 
-  fn read(&self, ix:usize) -> SaturatingTritValue
+  pub fn read(&self, ix:usize) -> SaturatingTritValue
   {
     let sub_byte = ix%5;
     let byte_ix = ix/5;
@@ -67,7 +67,7 @@ impl STritArray
     wrap(extract_trit(*self.data.get(block_ix).unwrap().lock().unwrap().get(subblock_ix).unwrap(), sub_byte))
   }
     
-  fn increment(&self, ix:usize) -> ()
+  pub fn increment(&self, ix:usize) -> ()
   {
     let sub_byte = ix%5;
     let byte_ix = ix/5;
