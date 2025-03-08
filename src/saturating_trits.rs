@@ -2,7 +2,8 @@
 
 use std::sync::Mutex;
 
-enum SaturatingTritValue {
+#[derive(PartialEq)]
+pub enum SaturatingTritValue {
     None,
     One,
     Lots,
@@ -128,5 +129,18 @@ impl STritArray {
         let subblock_ix = byte_ix & ((1 << self.ms) - 1);
         let mut block = self.data.get(block_ix).unwrap().lock().unwrap();
         block[subblock_ix] = sati(block[subblock_ix], sub_byte);
+    }
+
+    pub fn first_unique(&self) -> Option<usize> {
+        for (di, d) in self.data.iter().enumerate() {
+            for (ei, e) in d.lock().unwrap().iter().enumerate() {
+                for fi in 0..4 {
+                    if extract_trit(*e, fi) == 1 {
+                        return Some(fi + 5 * ei + ((5 << self.ms) * di));
+                    }
+                }
+            }
+        }
+        None
     }
 }

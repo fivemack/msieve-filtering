@@ -243,6 +243,21 @@ fn compress_prime(number: u64) -> Result<usize, PrimeError> {
     Ok((210 + 48 * b + cc) as usize)
 }
 
+fn decompress_prime(index: usize) -> u64 {
+    let decompressor: [u8; 48] = [
+        1, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101,
+        103, 107, 109, 113, 121, 127, 131, 137, 139, 143, 149, 151, 157, 163, 167, 169, 173, 179,
+        181, 187, 191, 193, 197, 199, 209,
+    ];
+
+    if index < 210 {
+        return index as u64;
+    }
+    let s = (index - 210) % 48;
+    let t: u64 = ((index - 210) / 48) as u64;
+    210 * t + (decompressor[s] as u64)
+}
+
 fn fast_read_hex(number: &[u8]) -> Result<u64, ParseError> {
     let mut k: u64 = 0;
     let l = number.len() - 1;
@@ -504,7 +519,7 @@ impl Chunk<'_> {
             let first_colon = find_fast_byte_after(line, b':');
             if (first_colon == line.len() - 1) {
                 // this is a free relation of the form 'x,0:'
-		// we can zap it and it will be regenerated later
+                // we can zap it and it will be regenerated later
                 bad_lines.push(line_number);
             } else {
                 let second_colon =
@@ -533,8 +548,11 @@ impl Chunk<'_> {
             let (line_number, line) = numbered_line;
             let first_colon = find_fast_byte_after(line, b':');
             if (first_colon == line.len() - 1) {
-	       // we should have removed this malformed line on the previous pass
-		panic!("Found a free relation in zap-singletons when they were supposed to be gone {}",std::str::from_utf8(line).unwrap());
+                // we should have removed this malformed line on the previous pass
+                panic!(
+                    "Found a free relation in zap-singletons when they were supposed to be gone {}",
+                    std::str::from_utf8(line).unwrap()
+                );
                 bad_lines.push(line_number);
             } else {
                 let second_colon =
@@ -545,24 +563,30 @@ impl Chunk<'_> {
 
                 let rats = CSVIterator::new(&line[first_colon + 1..second_colon]);
                 let algs = CSVIterator::new(&line[second_colon + 1..]);
-		let mut all_good = true;
-		for r in rats {
-		    let ri = fast_read_hex(r).unwrap();
-		    let cri = compress_prime(ri);
-		    if cri.is_err() { all_good = false; } else 
-		    if counter.rational_side.read(cri.unwrap()) != SaturatingTritValue::Lots { all_good = false;
-		    //println!("Zapping line {} because of rational singleton {}", std::str::from_utf8(line).unwrap(), ri);
-		    }
-		    }
-		for a in algs {
-		    let ai = fast_read_hex(a).unwrap();
-		    let cai = compress_prime(ai);
-		    if cai.is_err() { all_good=false; } else
-		    if counter.algebraic_side.read(cai.unwrap()) != SaturatingTritValue::Lots { all_good = false;
-		    //println!("Zapping line {} because of algebraic singleton {}", std::str::from_utf8(line).unwrap(), ai);
-		    }
-		    }
-		
+                let mut all_good = true;
+                for r in rats {
+                    let ri = fast_read_hex(r).unwrap();
+                    let cri = compress_prime(ri);
+                    if cri.is_err() {
+                        all_good = false;
+                    } else if counter.rational_side.read(cri.unwrap()) != SaturatingTritValue::Lots
+                    {
+                        all_good = false;
+                        //println!("Zapping line {} because of rational singleton {}", std::str::from_utf8(line).unwrap(), ri);
+                    }
+                }
+                for a in algs {
+                    let ai = fast_read_hex(a).unwrap();
+                    let cai = compress_prime(ai);
+                    if cai.is_err() {
+                        all_good = false;
+                    } else if counter.algebraic_side.read(cai.unwrap()) != SaturatingTritValue::Lots
+                    {
+                        all_good = false;
+                        //println!("Zapping line {} because of algebraic singleton {}", std::str::from_utf8(line).unwrap(), ai);
+                    }
+                }
+
                 if all_good == false {
                     bad_lines.push(line_number);
                 }
@@ -571,7 +595,6 @@ impl Chunk<'_> {
 
         bad_lines
     }
-
 
     fn valid_lines(&self) -> LineIterator {
         LineIterator {
@@ -632,7 +655,36 @@ fn emit_uncancelled_lines(output_filename: String, v: &[Chunk]) -> io::Result<()
     Ok(())
 }
 
+fn test_compressor() -> () {
+    let tests: [u64; 20] = [
+        10049875697,
+        10099504969,
+        10148891567,
+        10198039073,
+        10246950767,
+        10295630143,
+        10344080477,
+        10392304849,
+        10440306517,
+        10488088529,
+        10535653757,
+        10583005247,
+        10630145863,
+        10677078281,
+        10723805317,
+        10770329639,
+        10816653829,
+        10862780501,
+        10908712163,
+        10954451191,
+    ];
+    for t in tests {
+        assert!(decompress_prime(compress_prime(t).unwrap()) == t);
+    }
+}
+
 fn main() {
+    test_compressor();
     let args = PhiltreCmdLine::parse();
 
     let file = File::open(args.infn).unwrap();
@@ -782,25 +834,39 @@ fn main() {
     println!("Initialised singleton counters");
     let ploot: Vec<Vec<usize>> = v.par_iter_mut().map(|a| a.count_singletons(&sc)).collect();
 
-    let mut illegible:usize = 0;
+    let mut illegible: usize = 0;
     for a in 0..n_chunks {
-    	illegible += ploot[a].len();
+        illegible += ploot[a].len();
         for b in &ploot[a] {
             v[a].line_valid.set(*b, false);
         }
     }
 
-    println!("Marked {} lines as illegible after first singleton-count pass", illegible);
+    println!(
+        "Marked {} lines as illegible after first singleton-count pass",
+        illegible
+    );
+    let first_rati = sc.rational_side.first_unique();
+    let first_algi = sc.algebraic_side.first_unique();
+    let first_rat = decompress_prime(first_rati.unwrap());
+    let first_alg = decompress_prime(first_algi.unwrap());
+    println!(
+        "First rational / algebraic singletons are {} {} ({:02x} {:02x})",
+        first_rat, first_alg, first_rat, first_alg
+    );
     let ploot: Vec<Vec<usize>> = v.par_iter_mut().map(|a| a.zap_singletons(&sc)).collect();
 
-    let mut useless:usize = 0;
+    let mut useless: usize = 0;
     for a in 0..n_chunks {
-    	useless += ploot[a].len();
+        useless += ploot[a].len();
         for b in &ploot[a] {
             v[a].line_valid.set(*b, false);
         }
     }
-    println!("Marked {} lines as useless after first singleton-removal pass", useless);
-    
+    println!(
+        "Marked {} lines as useless after first singleton-removal pass",
+        useless
+    );
+
     emit_uncancelled_lines(args.outfn, &v).unwrap();
 }
