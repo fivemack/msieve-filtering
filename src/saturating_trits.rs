@@ -127,6 +127,13 @@ impl STritArray {
         let byte_ix = ix / 5;
         let block_ix = byte_ix >> self.ms;
         let subblock_ix = byte_ix & ((1 << self.ms) - 1);
+        if (block_ix >= self.data.len()) {
+            panic!(
+                "Increment called on entry {} where size is {}",
+                ix,
+                (5 << self.ms) * self.data.len()
+            );
+        }
         let mut block = self.data.get(block_ix).unwrap().lock().unwrap();
         block[subblock_ix] = sati(block[subblock_ix], sub_byte);
     }
