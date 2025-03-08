@@ -14,6 +14,7 @@ use bitvec::prelude::*;
 
 pub mod saturating_trits;
 use crate::saturating_trits::STritArray;
+use crate::saturating_trits::SaturatingTritValue;
 
 // need an error type
 #[derive(Debug, Clone)]
@@ -216,7 +217,7 @@ fn find_fast_byte_after(start: &[u8], target: u8) -> usize {
     return start.len();
 }
 
-fn compress_prime(number: u64) -> Result<u64, PrimeError> {
+fn compress_prime(number: u64) -> Result<usize, PrimeError> {
     let compressor: [u8; 210] = [
         48, 0, 48, 48, 48, 48, 48, 48, 48, 48, 48, 1, 48, 2, 48, 48, 48, 3, 48, 4, 48, 48, 48, 5,
         48, 48, 48, 48, 48, 6, 48, 7, 48, 48, 48, 48, 48, 8, 48, 48, 48, 9, 48, 10, 48, 48, 48, 11,
@@ -231,7 +232,7 @@ fn compress_prime(number: u64) -> Result<u64, PrimeError> {
     ];
 
     if number < 210 {
-        return Ok(number);
+        return Ok(number as usize);
     }
     let rem = number % 210;
     let cc = compressor[rem as usize] as u64;
@@ -239,7 +240,7 @@ fn compress_prime(number: u64) -> Result<u64, PrimeError> {
         return Err(PrimeError::new(number));
     }
     let b = number / 210;
-    Ok(210 + 48 * b + cc)
+    Ok((210 + 48 * b + cc) as usize)
 }
 
 fn fast_read_hex(number: &[u8]) -> Result<u64, ParseError> {
@@ -354,7 +355,7 @@ fn fast_read_xy(xy: &[u8]) -> Result<SieveIndex, ParseError> {
 fn count_it(slice: &[u8], counter: &STritArray) -> Result<(), PhiltreError> {
     for u in CSVIterator::new(slice) {
         let p = fast_read_hex(u)?;
-        counter.increment(compress_prime(p)? as usize);
+        counter.increment(compress_prime(p)?);
     }
     Ok(())
 }
@@ -525,6 +526,52 @@ impl Chunk<'_> {
 
         bad_lines
     }
+
+    pub fn zap_singletons(&mut self, counter: &SingletonCounter) -> Vec<usize> {
+        let mut bad_lines = Vec::new();
+        for numbered_line in self.numbered_valid_lines() {
+            let (line_number, line) = numbered_line;
+            let first_colon = find_fast_byte_after(line, b':');
+            if (first_colon == line.len() - 1) {
+	       // we should have removed this malformed line on the previous pass
+		panic!("Found a free relation in zap-singletons when they were supposed to be gone {}",std::str::from_utf8(line).unwrap());
+                bad_lines.push(line_number);
+            } else {
+                let second_colon =
+                    first_colon + 1 + find_fast_byte_after(&line[first_colon + 1..], b':');
+                /*		println!("first colon {} second colon {} read {} {}",
+                first_colon, second_colon,
+                line[first_colon], line[second_colon]); */
+
+                let rats = CSVIterator::new(&line[first_colon + 1..second_colon]);
+                let algs = CSVIterator::new(&line[second_colon + 1..]);
+		let mut all_good = true;
+		for r in rats {
+		    let ri = fast_read_hex(r).unwrap();
+		    let cri = compress_prime(ri);
+		    if cri.is_err() { all_good = false; } else 
+		    if counter.rational_side.read(cri.unwrap()) != SaturatingTritValue::Lots { all_good = false;
+		    //println!("Zapping line {} because of rational singleton {}", std::str::from_utf8(line).unwrap(), ri);
+		    }
+		    }
+		for a in algs {
+		    let ai = fast_read_hex(a).unwrap();
+		    let cai = compress_prime(ai);
+		    if cai.is_err() { all_good=false; } else
+		    if counter.algebraic_side.read(cai.unwrap()) != SaturatingTritValue::Lots { all_good = false;
+		    //println!("Zapping line {} because of algebraic singleton {}", std::str::from_utf8(line).unwrap(), ai);
+		    }
+		    }
+		
+                if all_good == false {
+                    bad_lines.push(line_number);
+                }
+            }
+        }
+
+        bad_lines
+    }
+
 
     fn valid_lines(&self) -> LineIterator {
         LineIterator {
@@ -722,8 +769,8 @@ fn main() {
     );
 
     // call compress-prime on 1+(first multiple of 210 greater than 1<<rbits)
-    let rat_singleton_size = compress_prime(1 + 210 * ((209 + 1 << rbits) / 210)).unwrap() as usize;
-    let alg_singleton_size = compress_prime(1 + 210 * ((209 + 1 << abits) / 210)).unwrap() as usize;
+    let rat_singleton_size = compress_prime(1 + 210 * ((209 + 1 << rbits) / 210)).unwrap();
+    let alg_singleton_size = compress_prime(1 + 210 * ((209 + 1 << abits) / 210)).unwrap();
 
     let rat_singletons = STritArray::init(rat_singleton_size, args.mutex_shift);
     let alg_singletons = STritArray::init(alg_singleton_size, args.mutex_shift);
@@ -743,7 +790,17 @@ fn main() {
         }
     }
 
-    println!("Marked {} lines as illegible after first singleton-count parse", illegible);
+    println!("Marked {} lines as illegible after first singleton-count pass", illegible);
+    let ploot: Vec<Vec<usize>> = v.par_iter_mut().map(|a| a.zap_singletons(&sc)).collect();
 
+    let mut useless:usize = 0;
+    for a in 0..n_chunks {
+    	useless += ploot[a].len();
+        for b in &ploot[a] {
+            v[a].line_valid.set(*b, false);
+        }
+    }
+    println!("Marked {} lines as useless after first singleton-removal pass", useless);
+    
     emit_uncancelled_lines(args.outfn, &v).unwrap();
 }
