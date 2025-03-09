@@ -88,6 +88,9 @@ impl STritArray {
             sz: 0,
         }
     }
+
+    pub fn len(&self) -> usize { return self.sz }
+
     pub fn init(sz: usize, mutex_shift: usize) -> Self {
         let blocksz = 5 << mutex_shift;
         let nblocks = (sz + blocksz - 1) / blocksz;

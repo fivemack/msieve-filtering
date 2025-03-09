@@ -33,7 +33,7 @@ struct PrimeError {
 
 impl ToString for PrimeError {
     fn to_string(&self) -> String {
-        format!("Composite 'prime' {}", self.naughty_number)
+        format!("Composite or excessive 'prime' {}", self.naughty_number)
     }
 }
 
@@ -366,9 +366,11 @@ fn fast_read_xy(xy: &[u8]) -> Result<SieveIndex, ParseError> {
 
 fn count_it(slice: &[u8], counter: &STritArray) -> Result<(), PhiltreError> {
     for u in CSVIterator::new(slice) {
-        if (u.len() > 4) {
+        if u.len() > 4 {
             let p = fast_read_hex(u)?;
-            counter.increment(compress_prime(p)?);
+	    let cp = compress_prime(p)?;
+	    if cp > counter.len() { return Err(PhiltreError::from(PrimeError::new(p))); }
+            counter.increment(cp);
         }
     }
     Ok(())
