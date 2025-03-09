@@ -218,20 +218,18 @@ fn find_fast_byte_after(start: &[u8], target: u8) -> usize {
 }
 
 static COMPRESSOR: [u8; 210] = [
-        48, 0, 48, 48, 48, 48, 48, 48, 48, 48, 48, 1, 48, 2, 48, 48, 48, 3, 48, 4, 48, 48, 48, 5,
-        48, 48, 48, 48, 48, 6, 48, 7, 48, 48, 48, 48, 48, 8, 48, 48, 48, 9, 48, 10, 48, 48, 48, 11,
-        48, 48, 48, 48, 48, 12, 48, 48, 48, 48, 48, 13, 48, 14, 48, 48, 48, 48, 48, 15, 48, 48, 48,
-        16, 48, 17, 48, 48, 48, 48, 48, 18, 48, 48, 48, 19, 48, 48, 48, 48, 48, 20, 48, 48, 48, 48,
-        48, 48, 48, 21, 48, 48, 48, 22, 48, 23, 48, 48, 48, 24, 48, 25, 48, 48, 48, 26, 48, 48, 48,
-        48, 48, 48, 48, 27, 48, 48, 48, 48, 48, 28, 48, 48, 48, 29, 48, 48, 48, 48, 48, 30, 48, 31,
-        48, 48, 48, 32, 48, 48, 48, 48, 48, 33, 48, 34, 48, 48, 48, 48, 48, 35, 48, 48, 48, 48, 48,
-        36, 48, 48, 48, 37, 48, 38, 48, 48, 48, 39, 48, 48, 48, 48, 48, 40, 48, 41, 48, 48, 48, 48,
-        48, 42, 48, 48, 48, 43, 48, 44, 48, 48, 48, 45, 48, 46, 48, 48, 48, 48, 48, 48, 48, 48, 48,
-        47,
-    ];
+    48, 0, 48, 48, 48, 48, 48, 48, 48, 48, 48, 1, 48, 2, 48, 48, 48, 3, 48, 4, 48, 48, 48, 5, 48,
+    48, 48, 48, 48, 6, 48, 7, 48, 48, 48, 48, 48, 8, 48, 48, 48, 9, 48, 10, 48, 48, 48, 11, 48, 48,
+    48, 48, 48, 12, 48, 48, 48, 48, 48, 13, 48, 14, 48, 48, 48, 48, 48, 15, 48, 48, 48, 16, 48, 17,
+    48, 48, 48, 48, 48, 18, 48, 48, 48, 19, 48, 48, 48, 48, 48, 20, 48, 48, 48, 48, 48, 48, 48, 21,
+    48, 48, 48, 22, 48, 23, 48, 48, 48, 24, 48, 25, 48, 48, 48, 26, 48, 48, 48, 48, 48, 48, 48, 27,
+    48, 48, 48, 48, 48, 28, 48, 48, 48, 29, 48, 48, 48, 48, 48, 30, 48, 31, 48, 48, 48, 32, 48, 48,
+    48, 48, 48, 33, 48, 34, 48, 48, 48, 48, 48, 35, 48, 48, 48, 48, 48, 36, 48, 48, 48, 37, 48, 38,
+    48, 48, 48, 39, 48, 48, 48, 48, 48, 40, 48, 41, 48, 48, 48, 48, 48, 42, 48, 48, 48, 43, 48, 44,
+    48, 48, 48, 45, 48, 46, 48, 48, 48, 48, 48, 48, 48, 48, 48, 47,
+];
 
 fn compress_prime(number: u64) -> Result<usize, PrimeError> {
-
     if number < 210 {
         return Ok(number as usize);
     }
@@ -245,10 +243,10 @@ fn compress_prime(number: u64) -> Result<usize, PrimeError> {
 }
 
 static DECOMPRESSOR: [u8; 48] = [
-        1, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101,
-        103, 107, 109, 113, 121, 127, 131, 137, 139, 143, 149, 151, 157, 163, 167, 169, 173, 179,
-        181, 187, 191, 193, 197, 199, 209,
-    ];
+    1, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101,
+    103, 107, 109, 113, 121, 127, 131, 137, 139, 143, 149, 151, 157, 163, 167, 169, 173, 179, 181,
+    187, 191, 193, 197, 199, 209,
+];
 
 fn decompress_prime(index: usize) -> u64 {
     if index < 210 {
@@ -270,7 +268,7 @@ fn fast_read_hex(number: &[u8]) -> Result<u64, ParseError> {
             97..=102 => ascii + 10 - 97,
             65..=70 => ascii + 10 - 65,
             _ => {
-/*                println!(
+                /*                println!(
                     "Not expecting {} in {}",
                     ascii,
                     std::str::from_utf8(number).unwrap()
@@ -312,11 +310,11 @@ fn rat_primes(line: &[u8]) -> Result<Vec<u64>, ParseError> {
 
 fn alg_primes(line: &[u8]) -> Result<Vec<u64>, ParseError> {
     let first_colon = find_fast_byte_after(&line, b':');
-    if (first_colon == line.len()) {
+    if first_colon == line.len() {
         return Err(ParseError);
     }
     let second_colon = find_fast_byte_after(&line[first_colon + 1..], b':');
-    if (second_colon == 0) {
+    if second_colon == 0 {
         return Err(ParseError);
     }
     parse_hex_csv(&line[first_colon + second_colon + 2..line.len() - 1])
@@ -368,8 +366,10 @@ fn count_it(slice: &[u8], counter: &STritArray) -> Result<(), PhiltreError> {
     for u in CSVIterator::new(slice) {
         if u.len() > 4 {
             let p = fast_read_hex(u)?;
-	    let cp = compress_prime(p)?;
-	    if cp > counter.len() { return Err(PhiltreError::from(PrimeError::new(p))); }
+            let cp = compress_prime(p)?;
+            if cp > counter.len() {
+                return Err(PhiltreError::from(PrimeError::new(p)));
+            }
             counter.increment(cp);
         }
     }
@@ -413,14 +413,14 @@ impl Chunk<'_> {
 
     pub fn valid_length(&self) -> (usize, usize) {
         let mut vl: usize = 0;
-	let mut vc: usize = 0;
+        let mut vc: usize = 0;
         for i in 0..self.line_starts.len() - 1 {
             if self.line_valid[i] {
-	        vc += 1;
+                vc += 1;
                 vl += self.line_starts[i + 1] - self.line_starts[i];
             }
         }
-	(vl,vc)
+        (vl, vc)
     }
 
     pub fn write_out(&self, dest_m: &Mutex<&mut [u8]>) -> usize {
@@ -568,7 +568,7 @@ impl Chunk<'_> {
                 let algs = CSVIterator::new(&line[second_colon + 1..]);
                 let mut all_good = true;
                 for r in rats {
-                    if (r.len() > 4) {
+                    if r.len() > 4 {
                         let ri = fast_read_hex(r).unwrap();
                         let cri = compress_prime(ri);
                         if cri.is_err() {
@@ -582,7 +582,7 @@ impl Chunk<'_> {
                     }
                 }
                 for a in algs {
-                    if (a.len() > 4) {
+                    if a.len() > 4 {
                         let ai = fast_read_hex(a).unwrap();
                         let cai = compress_prime(ai);
                         if cai.is_err() {
@@ -623,7 +623,7 @@ impl Chunk<'_> {
 fn emit_uncancelled_lines(output_filename: String, v: &[Chunk]) -> io::Result<()> {
     // Get the sum of the lengths of the uncancelled parts of the chunks
     let n = v.len();
-    let valid_lengths_: Vec<(usize,usize)> = v.par_iter().map(|c| c.valid_length()).collect();
+    let valid_lengths_: Vec<(usize, usize)> = v.par_iter().map(|c| c.valid_length()).collect();
     let n_uncancelled: usize = valid_lengths_.iter().map(|c| c.1).sum();
     let valid_lengths: Vec<usize> = valid_lengths_.iter().map(|c| c.0).collect();
     let mut start: Vec<usize> = Vec::new();
@@ -852,7 +852,7 @@ fn main() {
     let alg_singleton_size = compress_prime(1 + 210 * ((209 + (2 << abits)) / 210)).unwrap();
     let mut do_more = true;
     let mut pass = 1;
-    while (do_more) {
+    while do_more {
         let rat_singletons = STritArray::init(rat_singleton_size, args.mutex_shift);
         let alg_singletons = STritArray::init(alg_singleton_size, args.mutex_shift);
         let sc = SingletonCounter {
@@ -897,7 +897,7 @@ fn main() {
             useless, pass
         );
         pass += 1;
-        if (useless < 100) {
+        if useless < 100 {
             do_more = false;
         }
     }
