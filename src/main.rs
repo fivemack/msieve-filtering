@@ -217,8 +217,7 @@ fn find_fast_byte_after(start: &[u8], target: u8) -> usize {
     return start.len();
 }
 
-fn compress_prime(number: u64) -> Result<usize, PrimeError> {
-    let compressor: [u8; 210] = [
+static COMPRESSOR: [u8; 210] = [
         48, 0, 48, 48, 48, 48, 48, 48, 48, 48, 48, 1, 48, 2, 48, 48, 48, 3, 48, 4, 48, 48, 48, 5,
         48, 48, 48, 48, 48, 6, 48, 7, 48, 48, 48, 48, 48, 8, 48, 48, 48, 9, 48, 10, 48, 48, 48, 11,
         48, 48, 48, 48, 48, 12, 48, 48, 48, 48, 48, 13, 48, 14, 48, 48, 48, 48, 48, 15, 48, 48, 48,
@@ -231,11 +230,13 @@ fn compress_prime(number: u64) -> Result<usize, PrimeError> {
         47,
     ];
 
+fn compress_prime(number: u64) -> Result<usize, PrimeError> {
+
     if number < 210 {
         return Ok(number as usize);
     }
     let rem = number % 210;
-    let cc = compressor[rem as usize] as u64;
+    let cc = COMPRESSOR[rem as usize] as u64;
     if cc == 48 {
         return Err(PrimeError::new(number));
     }
@@ -243,19 +244,19 @@ fn compress_prime(number: u64) -> Result<usize, PrimeError> {
     Ok((210 + 48 * b + cc) as usize)
 }
 
-fn decompress_prime(index: usize) -> u64 {
-    let decompressor: [u8; 48] = [
+static DECOMPRESSOR: [u8; 48] = [
         1, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101,
         103, 107, 109, 113, 121, 127, 131, 137, 139, 143, 149, 151, 157, 163, 167, 169, 173, 179,
         181, 187, 191, 193, 197, 199, 209,
     ];
 
+fn decompress_prime(index: usize) -> u64 {
     if index < 210 {
         return index as u64;
     }
     let s = (index - 210) % 48;
     let t: u64 = ((index - 210) / 48) as u64;
-    210 * t + (decompressor[s] as u64)
+    210 * t + (DECOMPRESSOR[s] as u64)
 }
 
 fn fast_read_hex(number: &[u8]) -> Result<u64, ParseError> {
