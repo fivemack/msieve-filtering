@@ -270,12 +270,11 @@ fn fast_read_hex(number: &[u8]) -> Result<u64, ParseError> {
             97..=102 => ascii + 10 - 97,
             65..=70 => ascii + 10 - 65,
             _ => {
-                println!(
+/*                println!(
                     "Not expecting {} in {}",
                     ascii,
                     std::str::from_utf8(number).unwrap()
-                );
-                panic!();
+                ); */
                 return Err(ParseError);
             }
         };
