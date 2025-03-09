@@ -1,0 +1,16 @@
+#! /usr/bin/python3
+c=[]
+ct=0
+for a in range(210):
+  if (a%2==0 or a%3==0 or a%5==0 or a%7==0):
+    b=48
+  else:
+    b=ct
+    ct=1+ct
+  c=c+[b]
+
+print(c)
+
+print("\n\n")
+d=[a for a in range(210) if c[a]!=48]
+print(d)
