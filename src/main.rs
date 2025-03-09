@@ -409,14 +409,16 @@ impl Chunk<'_> {
         ncomments
     }
 
-    pub fn valid_length(&self) -> usize {
+    pub fn valid_length(&self) -> (usize, usize) {
         let mut vl: usize = 0;
+	let mut vc: usize = 0;
         for i in 0..self.line_starts.len() - 1 {
             if self.line_valid[i] {
+	        vc += 1;
                 vl += self.line_starts[i + 1] - self.line_starts[i];
             }
         }
-        vl
+	(vl,vc)
     }
 
     pub fn write_out(&self, dest_m: &Mutex<&mut [u8]>) -> usize {
@@ -619,7 +621,9 @@ impl Chunk<'_> {
 fn emit_uncancelled_lines(output_filename: String, v: &[Chunk]) -> io::Result<()> {
     // Get the sum of the lengths of the uncancelled parts of the chunks
     let n = v.len();
-    let valid_lengths: Vec<usize> = v.par_iter().map(|c| c.valid_length()).collect();
+    let valid_lengths_: Vec<(usize,usize)> = v.par_iter().map(|c| c.valid_length()).collect();
+    let n_uncancelled: usize = valid_lengths_.iter().map(|c| c.1).sum();
+    let valid_lengths: Vec<usize> = valid_lengths_.iter().map(|c| c.0).collect();
     let mut start: Vec<usize> = Vec::new();
 
     let mut sp: usize = 0;
@@ -649,7 +653,7 @@ fn emit_uncancelled_lines(output_filename: String, v: &[Chunk]) -> io::Result<()
         segments.push(Mutex::new(seg));
         rest = rest2;
     }
-    println!("Writing out uncancelled lines");
+    println!("Writing out {} uncancelled lines", n_uncancelled);
     let out_bytes: usize = (0..n)
         .into_par_iter()
         .map(|i| v[i].write_out(&segments[i]))
