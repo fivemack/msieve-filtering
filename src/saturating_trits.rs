@@ -132,7 +132,7 @@ impl STritArray {
         let byte_ix = ix / 5;
         let block_ix = byte_ix >> self.ms;
         let subblock_ix = byte_ix & ((1 << self.ms) - 1);
-        if (block_ix >= self.data.len()) {
+        if block_ix >= self.data.len() {
             panic!(
                 "Increment called on entry {} where size is {}",
                 ix,

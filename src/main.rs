@@ -314,7 +314,7 @@ fn alg_primes(line: &[u8]) -> Result<Vec<u64>, ParseError> {
         return Err(ParseError);
     }
     let second_colon = find_fast_byte_after(&line[first_colon + 1..], b':');
-    if second_colon == 0 {
+    if second_colon == 0 || second_colon == line.len() - first_colon - 1 {
         return Err(ParseError);
     }
     parse_hex_csv(&line[first_colon + second_colon + 2..line.len() - 1])
@@ -334,6 +334,9 @@ fn fast_read_unsigned(number: &[u8]) -> Result<u64, ParseError> {
     let l = number.len() - 1;
     let mut m = 1;
     for r in 0..=l {
+        if number[l - r] < 48 || number[l - r] > 57 {
+            return Err(ParseError);
+        }
         k = k + m * ((number[l - r] - 48) as u64);
         m = m * 10
     }
@@ -353,6 +356,9 @@ fn fast_read_signed(number: &[u8]) -> Result<i64, ParseError> {
 fn fast_read_xy(xy: &[u8]) -> Result<SieveIndex, ParseError> {
     let colon = find_fast_byte_after(xy, b':');
     let comma = find_fast_byte_after(xy, b',');
+    if colon == xy.len() || comma == xy.len() || comma + 1 >= colon {
+        return Err(ParseError);
+    }
     //  println!("{} {} {}  {} {} {}", xy[colon-1], xy[colon], xy[colon+1], xy[comma-1], xy[comma], xy[comma+1]);
     let xx = fast_read_signed(&xy[0..comma]);
     let yy = fast_read_unsigned(&xy[comma + 1..colon]);
@@ -448,36 +454,34 @@ impl Chunk<'_> {
     ) -> (usize, Vec<usize>) {
         let mut lines_read = 0;
         let mut bad_line_vector = Vec::new();
-        for i in 0..=(self.end_line - self.start_line) {
-            if self.line_valid[i] {
-                lines_read += 1;
-                let current_line = self.start_line + i;
-                let xy_fallible = fast_read_xy(&self.chunk[self.line_starts[i]..]);
-                // this is the first time we've read the line, it's totally possible there's an error
-                // in which case we mark the line as invalid and carry on
-                match xy_fallible {
-                    Err(err) => {
-                        println!(
-                            "Problem parsing line {}: {}",
-                            i + self.start_line,
-                            err.to_string()
-                        );
-                        // because we're doing this without being able to modify self,
-                        // we can't do "self.line_valid.set(i, false);"
-                        // instead we record the bad line for a later serial marking pass
-                        bad_line_vector.push(i);
-                    }
-                    Ok(xy) => {
-                        let shard: usize = (xy.x.rem_euclid(sharding_prime as i64)) as usize
-                            + sharding_prime * (xy.y.rem_euclid(sharding_prime as u32) as usize)
-                            - 1;
-                        let shard_mutex = shards.get(shard).unwrap();
-                        // block where we actually need to do something locked
-                        {
-                            let mut data = shard_mutex.lock().unwrap();
-                            if !data.contains_key(&xy) || data[&xy] > current_line {
-                                data.insert(xy, current_line);
-                            }
+        for (i, line) in self.numbered_valid_lines() {
+            lines_read += 1;
+            let current_line = self.start_line + i;
+            let xy_fallible = fast_read_xy(line);
+            // this is the first time we've read the line, it's totally possible there's an error
+            // in which case we mark the line as invalid and carry on
+            match xy_fallible {
+                Err(err) => {
+                    //                    println!(
+                    //                        "Problem parsing line {}: {}",
+                    //                        i + self.start_line,
+                    //                        err.to_string()
+                    //                    );
+                    // because we're doing this without being able to modify self,
+                    // we can't do "self.line_valid.set(i, false);"
+                    // instead we record the bad line for a later serial marking pass
+                    bad_line_vector.push(i);
+                }
+                Ok(xy) => {
+                    let shard: usize = (xy.x.rem_euclid(sharding_prime as i64)) as usize
+                        + sharding_prime * (xy.y.rem_euclid(sharding_prime as u32) as usize)
+                        - 1;
+                    let shard_mutex = shards.get(shard).unwrap();
+                    // block where we actually need to do something locked
+                    {
+                        let mut data = shard_mutex.lock().unwrap();
+                        if !data.contains_key(&xy) || data[&xy] > current_line {
+                            data.insert(xy, current_line);
                         }
                     }
                 }
@@ -530,14 +534,17 @@ impl Chunk<'_> {
                 /*		println!("first colon {} second colon {} read {} {}",
                 first_colon, second_colon,
                 line[first_colon], line[second_colon]); */
-
-                let rat_slice = &line[first_colon + 1..second_colon];
-                let alg_slice = &line[second_colon + 1..];
-                //		println!("rat slice {} alg slice {}", std::str::from_utf8(rat_slice).unwrap(), std::str::from_utf8(alg_slice).unwrap());
-                let rat_ok = count_it(rat_slice, &counter.rational_side);
-                let alg_ok = count_it(alg_slice, &counter.algebraic_side);
-                if rat_ok.is_err() || alg_ok.is_err() {
+                if second_colon == line.len() {
                     bad_lines.push(line_number);
+                } else {
+                    let rat_slice = &line[first_colon + 1..second_colon];
+                    let alg_slice = &line[second_colon + 1..];
+                    //		println!("rat slice {} alg slice {}", std::str::from_utf8(rat_slice).unwrap(), std::str::from_utf8(alg_slice).unwrap());
+                    let rat_ok = count_it(rat_slice, &counter.rational_side);
+                    let alg_ok = count_it(alg_slice, &counter.algebraic_side);
+                    if rat_ok.is_err() || alg_ok.is_err() {
+                        bad_lines.push(line_number);
+                    }
                 }
             }
         }
@@ -831,10 +838,10 @@ fn main() {
             })
             .max()
             .unwrap_or(0);
-        if xrp > biggest_rat_prime && xrp < (1<<36) {
+        if xrp > biggest_rat_prime && xrp < (1 << 36) {
             biggest_rat_prime = xrp;
         }
-        if xap > biggest_alg_prime && xap < (1<<36) {
+        if xap > biggest_alg_prime && xap < (1 << 36) {
             biggest_alg_prime = xap;
         }
     }
