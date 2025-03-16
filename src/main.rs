@@ -817,7 +817,7 @@ fn main() {
                 }
             })
             .max()
-            .unwrap();
+            .unwrap_or(0);
         let xap = vv
             .valid_lines()
             .take(samples_per_chunk)
@@ -830,11 +830,11 @@ fn main() {
                 }
             })
             .max()
-            .unwrap();
-        if xrp > biggest_rat_prime {
+            .unwrap_or(0);
+        if xrp > biggest_rat_prime && xrp < (1<<36) {
             biggest_rat_prime = xrp;
         }
-        if xap > biggest_alg_prime {
+        if xap > biggest_alg_prime && xap < (1<<36) {
             biggest_alg_prime = xap;
         }
     }
@@ -877,8 +877,8 @@ fn main() {
         );
         let first_rati = sc.rational_side.first_unique();
         let first_algi = sc.algebraic_side.first_unique();
-        let first_rat = decompress_prime(first_rati.unwrap());
-        let first_alg = decompress_prime(first_algi.unwrap());
+        let first_rat = decompress_prime(first_rati.unwrap_or(3));
+        let first_alg = decompress_prime(first_algi.unwrap_or(3));
         println!(
             "First rational / algebraic singletons are {} {} ({:02x} {:02x})",
             first_rat, first_alg, first_rat, first_alg
