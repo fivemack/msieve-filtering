@@ -260,6 +260,9 @@ fn decompress_prime(index: usize) -> u64 {
 fn fast_read_hex(number: &[u8]) -> Result<u64, ParseError> {
     let mut k: u64 = 0;
     let l = number.len() - 1;
+    if l > 14 {
+        return Err(ParseError);
+    }
     let mut m = 1;
     for r in 0..=l {
         let ascii = number[l - r];
