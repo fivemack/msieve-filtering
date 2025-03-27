@@ -325,10 +325,7 @@ fn alg_primes(line: &[u8]) -> Result<Vec<u64>, ParseError> {
 
 fn fast_read_unsigned(number: &[u8]) -> Result<u64, ParseError> {
     if number.len() > 16 {
-        println!("Unexpectedly long integer of {} characters", number.len());
-        for i in 0..number.len() {
-            println!("{} {}", number[i] as char, number[i]);
-        }
+        println!("Unexpectedly long integer of {} characters '{}'", number.len(), std::str::from_utf8(number).unwrap());
         return Err(ParseError);
         //        assert!(number.len() <= 16);
     }
@@ -765,7 +762,8 @@ fn main() {
 
     // count the lines (needed so each chunk knows where it starts)
     let lines_per_chunk: Vec<usize> = v.par_iter_mut().map(|a| a.identify_lines()).collect();
-    println!("{} lines in file", lines_per_chunk.iter().sum::<usize>());
+    let mut n_left = lines_per_chunk.iter().sum::<usize>();
+    println!("{} lines in file", n_left);
 
     let mut nx: usize = 0;
     for a in 0..n_chunks {
@@ -799,6 +797,7 @@ fn main() {
 
     let n_comments: usize = v.par_iter_mut().map(|a| a.invalidate_comments()).sum();
     println!("{} comment lines found\n", n_comments);
+    n_left -= n_comments;
 
     let og_pair: Vec<(usize, Vec<usize>)> = v
         .par_iter()
@@ -811,6 +810,7 @@ fn main() {
         "{} non-comment lines read for sharding, {} bad\n",
         og.0, og.1
     );
+    n_left -= og.1;
 
     for a in 0..n_chunks {
         for b in &(og_pair[a].1) {
@@ -828,7 +828,8 @@ fn main() {
         .par_iter_mut()
         .map(|a| a.mark_dupes(&xys, sharding_prime))
         .sum();
-    println!("{} duplicates found", n_duplicates);
+    n_left -= n_duplicates;
+    println!("{} duplicates found ({} left)", n_duplicates, n_left);
 
     // And now for the singletons
     let samples_per_chunk: usize = 100;
@@ -889,8 +890,7 @@ fn main() {
             rational_side: rat_singletons,
             algebraic_side: alg_singletons,
         };
-
-        println!("Initialised singleton counters for pass {}", pass);
+        println!("Performing singleton count pass #{}", pass);
         let ploot: Vec<Vec<usize>> = v.par_iter_mut().map(|a| a.count_singletons(&sc)).collect();
 
         let mut illegible: usize = 0;
@@ -901,17 +901,20 @@ fn main() {
             }
         }
 
-        println!(
-            "Marked {} lines as illegible after singleton-count pass #{}",
-            illegible, pass
-        );
+        if pass == 1 {
+            println!(
+                "Marked {} lines as illegible after singleton-count pass #{}",
+                illegible, pass
+            );
+            n_left -= illegible;
+        }
         let first_rati = sc.rational_side.first_unique();
         let first_algi = sc.algebraic_side.first_unique();
         let first_rat = decompress_prime(first_rati.unwrap_or(3));
         let first_alg = decompress_prime(first_algi.unwrap_or(3));
         println!(
-            "First rational / algebraic singletons are {} {} ({:02x} {:02x})",
-            first_rat, first_alg, first_rat, first_alg
+            "Pass {}: first rational / algebraic singletons are {} {} ({:02x} {:02x})",
+            pass, first_rat, first_alg, first_rat, first_alg
         );
         let ploot: Vec<Vec<usize>> = v.par_iter_mut().map(|a| a.zap_singletons(&sc)).collect();
 
@@ -922,9 +925,10 @@ fn main() {
                 v[a].line_valid.set(*b, false);
             }
         }
+        n_left -= useless;
         println!(
-            "Marked {} lines as useless after singleton-removal pass #{}",
-            useless, pass
+            "Marked {} lines as useless after singleton-removal pass #{}; {} left",
+            useless, pass, n_left
         );
         pass += 1;
         if useless < 100 {
