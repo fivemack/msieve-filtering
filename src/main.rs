@@ -364,10 +364,17 @@ fn fast_read_xy(xy: &[u8]) -> Result<SieveIndex, ParseError> {
     }
     //  println!("{} {} {}  {} {} {}", xy[colon-1], xy[colon], xy[colon+1], xy[comma-1], xy[comma], xy[comma+1]);
     let xx = fast_read_signed(&xy[0..comma]);
-    let yy = fast_read_unsigned(&xy[comma + 1..colon]);
+    let yy_dubious = fast_read_unsigned(&xy[comma + 1..colon]);
+    if !xx.is_ok() || !yy_dubious.is_ok() {
+        return Err(ParseError);
+    }
+    let yy = yy_dubious.unwrap();
+    if yy > (1_u64) << 32 {
+        return Err(ParseError);
+    }
     Ok(SieveIndex {
         x: xx?,
-        y: (yy? as u32),
+        y: yy as u32,
     })
 }
 
@@ -476,15 +483,28 @@ impl Chunk<'_> {
                     bad_line_vector.push(i);
                 }
                 Ok(xy) => {
-                    let shard: usize = (xy.x.rem_euclid(sharding_prime as i64)) as usize
-                        + sharding_prime * (xy.y.rem_euclid(sharding_prime as u32) as usize)
-                        - 1;
-                    let shard_mutex = shards.get(shard).unwrap();
-                    // block where we actually need to do something locked
-                    {
-                        let mut data = shard_mutex.lock().unwrap();
-                        if !data.contains_key(&xy) || data[&xy] > current_line {
-                            data.insert(xy, current_line);
+                    if xy.x == 0 && xy.y == 0 {
+                        println!("0,0 from line {}", std::str::from_utf8(line).unwrap());
+                        bad_line_vector.push(i);
+                    } else {
+                        let shardplusone: usize = (xy.x.rem_euclid(sharding_prime as i64)) as usize
+                            + sharding_prime * (xy.y.rem_euclid(sharding_prime as u32) as usize);
+                        if shardplusone == 0 {
+                            println!(
+                                "0,0 modulo from line {}",
+                                std::str::from_utf8(line).unwrap()
+                            );
+                            bad_line_vector.push(i);
+                        } else {
+                            let shard = shardplusone - 1;
+                            let shard_mutex = shards.get(shard).unwrap();
+                            // block where we actually need to do something locked
+                            {
+                                let mut data = shard_mutex.lock().unwrap();
+                                if !data.contains_key(&xy) || data[&xy] > current_line {
+                                    data.insert(xy, current_line);
+                                }
+                            }
                         }
                     }
                 }
